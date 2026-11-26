@@ -916,13 +916,18 @@
              hear only genuinely new arrivals from others, in this separate
              status; the log's own aria-live is not set. Filled in by
              `renderLog` in app/src/main.ts. -->
-        <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-board-chat></p>
         <!-- A self-destructing room's countdown: its stage changes are said
              here, once each, never its ticks. The final minute's banner
              below ticks, so it is hidden from screen readers. -->
-        <p id="fuseAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
-        <div id="fuseBanner" class="fuseBanner" aria-hidden="true" hidden></div>
-        <div id="chatViewport">
+        <p id="fuseAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-board-chat></p>
+        <div id="fuseBanner" class="fuseBanner" aria-hidden="true" hidden data-board-chat></div>
+        <div id="boardChatBar" hidden data-board-chat>
+          <h2 id="boardChatHeading">Chat</h2>
+          <label for="boardChatSize">Chat size</label>
+          <input id="boardChatSize" type="range" min="10" max="44" value="16" />
+        </div>
+        <div id="chatViewport" data-board-chat>
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
           <!-- Nobody else is here and nobody has said anything: the one thing to
@@ -934,21 +939,21 @@
             <p class="emptyRoomNote">Anyone with the link can join.</p>
           </div>
         </div>
-        <p id="bothyRoomConnection" class="note" role="status" hidden></p>
-        <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
+        <p id="bothyRoomConnection" class="note" role="status" hidden data-board-chat></p>
+        <div id="outbox" hidden aria-label="Messages awaiting confirmation" data-board-chat></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into
              a record of what was said aloud, which is not what that tab is.
              Filled in by `renderChannels` in app/src/main.ts. -->
-        <p id="readOnlyNote" class="note" hidden></p>
-        <p id="pasteSizeNote" class="note" role="status" hidden></p>
+        <p id="readOnlyNote" class="note" hidden data-board-chat></p>
+        <p id="pasteSizeNote" class="note" role="status" hidden data-board-chat></p>
         <!-- Files picked and waiting to be sent: a chip each, the one-time
              notice the first time a device sends to the default server, and
              what went wrong when an upload did not. Filled in by
              `renderStaged` in app/src/main.ts. -->
-        <p id="fileTrayAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
-        <div id="attachMenu"></div>
-        <div id="fileTray" class="fileTray" role="group" aria-label="Files to send" hidden>
+        <p id="fileTrayAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-board-chat></p>
+        <div id="attachMenu" data-board-chat></div>
+        <div id="fileTray" class="fileTray" role="group" aria-label="Files to send" hidden data-board-chat>
           <div id="attachStaged" class="trayChips"></div>
           <div id="fileNotice" class="trayNotice" hidden>
             <p id="fileNoticeClosed" hidden></p>
@@ -968,7 +973,7 @@
             </div>
           </div>
         </div>
-        <form id="chatForm">
+        <form id="chatForm" data-board-chat>
           <!-- Who is in the room, offered when you type an @. Above the box
                rather than below it, because below the box on a phone is
                where the keyboard is, and a picker behind a keyboard does
@@ -1017,7 +1022,7 @@
              It opens only for those two (never from the + button, which
              opens the system picker), and says nothing about where files go
              (Settings › Privacy › Where files go does). -->
-        <div id="attachPanel" class="attachPanel" hidden>
+        <div id="attachPanel" class="attachPanel" hidden data-board-chat>
           <p id="fileStorageStatus" class="note" role="status"></p>
           <button type="button" id="attachBothyPick" hidden>Choose a file</button>
           <div id="privateFileStorage" hidden>
