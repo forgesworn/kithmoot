@@ -263,13 +263,21 @@ test('the room’s board opens from its chat for people with only the link', asy
 })
 
 test('on a phone the board opens from the chat header and returns to the same conversation', async ({ browser, baseURL }) => {
-  const context = await newDeviceContext(browser, baseURL!, { viewport: { width: 390, height: 844 }, hasTouch: true })
+  const context = await newDeviceContext(browser, baseURL!, { viewport: { width: 320, height: 640 }, hasTouch: true })
   const page = await context.newPage()
   await createRoom(page, baseURL!, testRelaysFor(baseURL!))
   // The phone can open the board directly from this room's chat header.
   await expect(page.locator('#railBoards')).toBeHidden()
   await openRoomBoard(page)
   await addCard(page, 'Bring the urn')
+  await expect(card(page, 'Bring the urn')).toBeInViewport({ ratio: 0.5 })
+  const tools = board(page).getByRole('button', { name: 'Board tools', exact: true })
+  const search = board(page).getByRole('button', { name: 'Search', exact: true })
+  await expect(search).toBeHidden()
+  await tools.click()
+  await expect(search).toBeInViewport()
+  await tools.press('Escape')
+  await expect(search).toBeHidden()
   await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
   await page.getByRole('slider', { name: 'Chat size' }).fill('24')
   await page.getByRole('button', { name: 'Hide chat', exact: true }).click()
