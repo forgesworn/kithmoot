@@ -21,8 +21,8 @@ jobs:
       - name: Download and hash the portable build
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET_ID: '795307851'
-          ARCHIVE_SHA256: '9d373bb5eafbbc0e0824321c9386821d81ab0a1f68098e6c55f3a8f9082f0bc2'
+          ASSET_ID: '795361180'
+          ARCHIVE_SHA256: 'e52ec62f9e060213485b2836c2b8abefdf9a2e0ea74f0574770b091c30bab8b5'
         run: |
           $candidate = Join-Path $env:RUNNER_TEMP 'km-candidate.zip'
           gh api -H 'Accept: application/octet-stream' "repos/forgesworn/kithmoot/releases/assets/$env:ASSET_ID" > $candidate

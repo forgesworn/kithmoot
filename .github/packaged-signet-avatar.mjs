@@ -101,6 +101,7 @@ try {
   await expect(page.locator('#railPersonaTip')).toHaveText(label)
   await avatar.click()
   await expect(page.locator('#personaCurrentName')).toHaveText(label)
+  assert.equal(await page.evaluate(() => window.kithmootDesktop.bothyRoomWindowReady()), true)
   const attachmentFrame = '/j/attachment-frame.html'
   async function openPicture() {
     await page.evaluate(async () => {
