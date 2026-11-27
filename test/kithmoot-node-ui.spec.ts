@@ -1,6 +1,6 @@
 import { test, expect, chromium, _electron as electron, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
@@ -1456,16 +1456,29 @@ test('both of the owner\'s devices reopen a node room after the reply to one\'s 
   await ownerReopensAfterAnUnacknowledgedGrant(baseURL!, 'reply')
 })
 
-/** A browser with no account, routed to the test node, as a guest's phone. */
-async function nodeGuest(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, contexts: BrowserContext[], log: string[]): Promise<Page> {
+/** A fresh browser, routed to the test node, with an optional guest signer. */
+async function nodeGuest(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, contexts: BrowserContext[], log: string[],
+  key?: Uint8Array): Promise<Page> {
   const context = await newDeviceContext(browser, baseURL, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
   contexts.push(context)
-  await context.addInitScript(({ node }) => {
+  if (key) {
+    await context.exposeFunction('guestPublicKey', () => getPublicKey(key))
+    await context.exposeFunction('guestSign', (template: EventTemplate) => finalizeEvent(template, key))
+    await context.addInitScript(() => {
+      const w = window as typeof window & { guestPublicKey(): Promise<string>; guestSign(value: unknown): Promise<unknown> }
+      Object.defineProperty(w, 'nostr', { value: { getPublicKey: () => w.guestPublicKey(), signEvent: (value: unknown) => w.guestSign(value) } })
+    })
+  }
+  const accountRelay = new URL('/__test-relay', baseURL); accountRelay.protocol = 'wss:'
+  await context.addInitScript(({ node, relay }) => {
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
-      constructor(url: string | URL, protocols?: string | string[]) { super(String(url) === 'wss://node.example/events' ? node : url, protocols) }
+      constructor(url: string | URL, protocols?: string | string[]) {
+        const target = String(url)
+        super(target === 'wss://node.example/events' ? node : relay && target.startsWith('wss://') && !target.includes('localhost') ? relay : target, protocols)
+      }
     }
-  }, { node: fixture.websocket })
+  }, { node: fixture.websocket, relay: key && accountRelay.href })
   await context.route('https://node.example/**', async route => {
     const path = new URL(route.request().url()).pathname
     const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
@@ -1479,8 +1492,8 @@ async function nodeGuest(browser: Browser, baseURL: string, fixture: Awaited<Ret
 }
 
 async function ownerWithNodeRoom(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>,
-  contexts: BrowserContext[], log: string[], name: string, key = generateSecretKey()): Promise<{ owner: Page; link: string }> {
-  const owner = await ownerSyncDevice(browser, baseURL, fixture, key, contexts, 'owner', log)
+  contexts: BrowserContext[], log: string[], name: string, key = generateSecretKey(), observe?: (page: Page) => void): Promise<{ owner: Page; link: string }> {
+  const owner = await ownerSyncDevice(browser, baseURL, fixture, key, contexts, 'owner', log, observe)
   await openCallSettings(owner, 'Your KithMoot node')
   await owner.locator('#nodePairingInput').fill(fixture.pairing())
   await owner.locator('#nodePair').click(); await owner.locator('#actionConfirm').click()
@@ -1495,6 +1508,210 @@ async function ownerWithNodeRoom(browser: Browser, baseURL: string, fixture: Awa
   await expect.poll(() => owner.locator('#shareUrl').inputValue()).not.toBe('')
   return { owner, link: await owner.locator('#shareUrl').inputValue() }
 }
+
+test('a private node room shares profiles and guest name changes without kind-0 or image lookups', async ({ browser, baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(90_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true })
+  const contexts: BrowserContext[] = [], publicTraffic: string[] = []
+  const image = 'https://profile-image.example/portrait.png'
+  const pictureFile = { name: 'profile.png', mimeType: 'image/png',
+    buffer: readFileSync(new URL('../desktop/icons/kithmoot-128.png', import.meta.url)) }
+  const monitor = (page: Page) => {
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      const [op, event, ...filters] = JSON.parse(String(payload))
+      if (op === 'REQ' && filters.some((filter: { kinds?: number[] }) => filter.kinds?.includes(0)) ||
+          op === 'EVENT' && event.kind === 0) publicTraffic.push(socket.url())
+    }))
+    page.on('request', request => {
+      if (request.url().startsWith('https://profile-image.example/')) publicTraffic.push(request.url())
+    })
+  }
+  try {
+    const ownerKey = generateSecretKey()
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, [], 'Private profiles', ownerKey, monitor)
+    publicTraffic.length = 0
+    await owner.context().route('https://profile-image.example/**', route => route.abort())
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, [])
+    monitor(guest)
+    await guest.context().route('https://profile-image.example/**', route => route.abort())
+    await openRoomUrl(guest, link)
+    const door = guest.getByRole('dialog', { name: 'Ask to join this room?' })
+    await expect(door.getByRole('button', { name: 'Sign in with Nostr', exact: true })).toBeVisible()
+    await door.getByLabel('Your name').fill('Ari')
+    await door.getByRole('button', { name: 'Ask to join', exact: true }).click()
+    const request = owner.locator('.approvalCard.knock')
+    await expect(request).toContainText('Ari wants to join')
+    await request.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible()
+    await guest.locator('#chatInput').fill('I joined with just a name.')
+    await guest.locator('#chatInput').press('Enter')
+    const sender = (page: Page, name: string) => page.locator('#chatLog').getByRole('button', { name: `View details for ${name}`, exact: true })
+    await expect(sender(owner, 'Ari')).toBeVisible()
+
+    await openRoomInfoPage(guest, 'How you appear')
+    await guest.getByLabel('Your name in this room').fill('Ari Live')
+    await guest.getByRole('button', { name: 'Save name', exact: true }).click()
+    await expect(guest.locator('#guestNameStatus')).toHaveText('Name updated in this room.')
+    await expect(sender(owner, 'Ari Live')).toBeVisible()
+    await expect(sender(owner, 'Ari')).toHaveCount(0)
+    await guest.locator('#roomSheetClose').click()
+
+    await openRoomInfoPage(owner, 'How you appear')
+    const share = owner.getByRole('button', { name: 'Share Nostr profile', exact: true })
+    const signedProfile = { kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify({ name: 'Nostr host', picture: image, nip05: 'host@profile-image.example' }) }
+    for (const key of [generateSecretKey(), ownerKey]) {
+      await share.click()
+      await owner.getByLabel('Signed kind 0 event (JSON)').fill(JSON.stringify(finalizeEvent(signedProfile, key)))
+      await owner.getByRole('button', { name: 'Share profile', exact: true }).click()
+      await expect(owner.locator('#roomProfileStatus')).toHaveText(key === ownerKey
+        ? 'Profile shared with this room.' : 'Paste a signed kind 0 from this Nostr account.')
+    }
+    await owner.getByRole('button', { name: 'Set profile photo', exact: true }).click()
+    const editor = owner.getByRole('dialog', { name: 'Photo for Nostr host', exact: true })
+    await editor.locator('input[type=file]').setInputFiles(pictureFile)
+    await editor.getByRole('button', { name: 'Share photo', exact: true }).click()
+    await expect(editor).toBeHidden()
+    await owner.locator('#roomSheetClose').click()
+    await owner.locator('#chatInput').fill('Hello from the host.')
+    await owner.locator('#chatInput').press('Enter')
+    for (const page of [owner, guest]) {
+      const avatar = sender(page, 'Nostr host').locator('img.avatar')
+      await expect(avatar).toHaveAttribute('src', /^data:image\/(?:png|webp);base64,/)
+      expect(await avatar.evaluate(async (img: HTMLImageElement) => { await img.decode(); return img.naturalWidth })).toBeGreaterThan(0)
+    }
+    await owner.reload()
+    await expect(sender(owner, 'Nostr host').locator('img.avatar')).toHaveAttribute('src', /^data:image\//)
+    await openRoomInfoPage(owner, 'How you appear')
+    await owner.getByRole('button', { name: 'Set profile photo', exact: true }).click()
+    await editor.getByRole('button', { name: 'Remove photo', exact: true }).click()
+    await expect(sender(guest, 'Nostr host').locator('img.avatar')).toHaveCount(0)
+
+    await owner.locator('#roomInfoBack').click()
+    await owner.locator('#hostPanel > summary').click()
+    await owner.locator('#hostList').getByRole('button', { name: 'Remove', exact: true }).click()
+    await owner.getByRole('button', { name: 'Remove from room', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeHidden()
+    await expect.poll(() => fixture.ledger.active().length).toBe(1)
+    expect(publicTraffic).toEqual([])
+  } finally {
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await fixture.close()
+  }
+})
+
+test('a hosted invite can connect a Nostr signer before asking to join', async ({ browser, baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  const picture = 'https://profile-image.example/guest.png'
+  const imageRequests: string[] = []
+  let guest: Page | undefined
+  try {
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'Sign in at the door')
+    const key = generateSecretKey()
+    guest = await nodeGuest(browser, baseURL!, fixture, contexts, log, key)
+    for (const context of contexts) await context.route(picture, route => {
+      imageRequests.push(route.request().url())
+      return route.abort()
+    })
+    guest.on('websocket', socket => {
+      log.push('guest socket ' + new URL(socket.url()).host)
+      socket.on('socketerror', error => log.push('guest socket error ' + error))
+      socket.on('framesent', ({ payload }) => log.push('guest socket sent ' + JSON.parse(String(payload))[0]))
+    })
+    await guest.context().addInitScript(({ origin, profile }) => {
+      if (location.origin === origin) localStorage.setItem('kithmoot.own-room-profile.v1.' + profile.pubkey, JSON.stringify({ event: profile }))
+    }, { origin: new URL(baseURL!).origin,
+      profile: finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Nostr guest', picture }) }, key) })
+    await openRoomUrl(guest, link)
+    await guest.evaluate(async ({ picture, bytes }) => {
+      const cache = await caches.open('kithmoot-people-pictures-v1')
+      await cache.put(picture, new Response(Uint8Array.from(bytes), {
+        headers: { 'Content-Type': 'image/png', 'X-KithMoot-Expires': String(Date.now() + 60_000) },
+      }))
+    }, { picture, bytes: [...readFileSync(new URL('../desktop/icons/kithmoot-128.png', import.meta.url))] })
+    await guest.getByRole('button', { name: 'Sign in with Nostr', exact: true }).click()
+    await guest.getByRole('button', { name: /Browser extension/ }).click()
+    await guest.getByRole('button', { name: 'Ask to join', exact: true }).click()
+    await expect(owner.locator('.approvalCard.knock')).toContainText('Nostr guest wants to join')
+    await owner.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible()
+    await openRoomInfoPage(guest, 'How you appear')
+    await expect(guest.locator('#sendingIdentity')).toContainText('Nostr guest')
+    await expect(guest.locator('#guestNameForm')).toBeHidden()
+    await guest.locator('#roomSheetClose').click()
+    await guest.locator('#chatInput').fill('My profile arrived with me.')
+    await guest.locator('#chatInput').press('Enter')
+    const guestAvatar = owner.locator('#chatLog').getByRole('button', { name: 'View details for Nostr guest', exact: true }).locator('img.avatar')
+    await expect(guestAvatar).toHaveAttribute('src', /^data:image\/(?:png|webp);base64,/)
+    expect(imageRequests).toEqual([])
+  } catch (error) {
+    if (guest) log.push(await guest.locator('body').ariaSnapshot())
+    await test.info().attach('signed-in admission', { body: log.join('\n'), contentType: 'text/plain' })
+    throw error
+  } finally {
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await fixture.close()
+  }
+})
+
+test('a node room participant photo stays on the device and survives reopening', async ({ browser, baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true })
+  const contexts: BrowserContext[] = []
+  try {
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, [], 'Private photo')
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, [])
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join', exact: true }).click()
+    await owner.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible()
+    await guest.locator('#chatInput').fill('A message in the private room')
+    await guest.locator('#chatInput').press('Enter')
+
+    const requests: string[] = [], appOrigin = new URL(baseURL!).origin
+    owner.on('request', request => {
+      if (request.resourceType() === 'image' && /^https?:/.test(request.url()) && new URL(request.url()).origin !== appOrigin) {
+        requests.push(request.url())
+      }
+    })
+    const sender = owner.locator('#chatLog').getByRole('button', { name: 'View details for Guest', exact: true })
+    const avatar = sender.locator('img.avatar')
+    const card = owner.getByRole('dialog', { name: 'Participant details' })
+    const editor = owner.getByRole('dialog', { name: 'Photo for Guest' })
+    await sender.click()
+    await card.getByRole('button', { name: 'Set photo on this device' }).click()
+    await editor.locator('input[type=file]').setInputFiles({
+      name: 'guest-photo.png', mimeType: 'image/png',
+      buffer: readFileSync(new URL('../desktop/icons/kithmoot-128.png', import.meta.url)),
+    })
+    await editor.getByRole('button', { name: 'Save photo', exact: true }).click()
+    await expect(card.locator('img.avatar')).toHaveAttribute('src', /^data:image\/(?:png|webp);base64,/)
+    await card.getByRole('button', { name: 'Close participant details' }).click()
+    await expect(avatar).toBeVisible()
+    expect(await avatar.evaluate(async (image: HTMLImageElement) => { await image.decode(); return image.naturalWidth })).toBeGreaterThan(0)
+    await expect(guest.locator('#chatLog img.avatar')).toHaveCount(0)
+
+    await owner.reload()
+    await expect(avatar).toBeVisible()
+    await sender.click()
+    await card.getByRole('button', { name: 'Set photo on this device' }).click()
+    await editor.getByRole('button', { name: 'Remove photo', exact: true }).click()
+    await expect(card.locator('img.avatar')).toHaveCount(0)
+    await card.getByRole('button', { name: 'Close participant details' }).click()
+    await expect(avatar).toHaveCount(0)
+    expect(requests).toEqual([])
+  } finally {
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await fixture.close()
+  }
+})
 
 // 11 November: a guest knocked while the owner's screen showed another page,
 // and waited a minute with nobody told.

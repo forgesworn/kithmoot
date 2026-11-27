@@ -1,21 +1,5 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import { hexToBytes } from '@noble/hashes/utils'
-import type { LookupScope } from './profiles.js'
-
-/**
- * Who a public-profile lookup is allowed to ask about, and where, as rules
- * with no DOM in them. `profiles.ts` says what a lookup hands a relay; this
- * decides which lookups are made at all and which relays hear them.
- *
- * Two rules, both about keeping a relay from learning more than it must:
- *
- * - A key this browser made for itself is never looked up. A name-only visit
- *   uses a key generated here, which has no public profile to find, and the
- *   question would tell the room's relays the participant key that the
- *   room's own events keep inside the ciphertext.
- * - The account signed in on this browser is only ever asked about on the
- *   public profile relays, never on a room's.
- */
 
 /**
  * Whether a key is one this browser generated for a name-only visitor.
@@ -59,38 +43,6 @@ export function createMadeHere(stored: () => string | null | undefined): (pubkey
     }
     return derived === pubkey
   }
-}
-
-/** Where each of these keys is to be asked about. */
-export interface RoutedLookups { room: string[]; public: string[] }
-
-/**
- * Split a request into what may be asked, and on which relays.
- *
- * Keys made here are dropped. The account's own key goes to the public
- * relays whatever the caller asked for: it is who this browser is, not who
- * is in the room, and a room's relays would otherwise learn from this
- * browser, which they are connected to, which Nostr account it belongs to.
- * With no room open there is no room to ask, so a `room` request goes to the
- * public relays too: a room's pool built for nowhere would otherwise be
- * pointed at the wrong relays when a room does open. Everyone else is asked
- * about as the caller said.
- */
-export function routeLookups(
-  pubkeys: readonly string[],
-  scope: LookupScope,
-  rules: { madeHere(pubkey: string): boolean; isAccount(pubkey: string): boolean; roomOpen: boolean },
-): RoutedLookups {
-  const routed: RoutedLookups = { room: [], public: [] }
-  const inRoom = scope === 'room' && rules.roomOpen
-  for (const pubkey of new Set(pubkeys)) {
-    // Checked first: whatever key a person has signed in with is a real
-    // account, even if the same bytes were once generated here.
-    const account = rules.isAccount(pubkey)
-    if (!account && rules.madeHere(pubkey)) continue
-    routed[inRoom && !account ? 'room' : 'public'].push(pubkey)
-  }
-  return routed
 }
 
 /** The hosts a lookup would ask, once each and in the order given, for the

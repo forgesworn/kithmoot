@@ -207,6 +207,7 @@ export type {
   EpochConflict,
   EpochWaitReason,
 } from './session.js'
+export type { RoomProfile } from './room-profile.js'
 export {
   createPairingCode,
   encodePairingRequest,

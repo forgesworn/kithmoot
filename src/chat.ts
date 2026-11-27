@@ -986,6 +986,7 @@ export class ChatLog {
   readonly #opts: ChatLogOptions
   readonly #now: () => number
   readonly #nowMs: (() => number) | undefined
+  #displayName?: string
   /** The credential every message goes out under. Starts as the one handed
    *  in and is replaced when the session renews - see `setCredential`.
    *  Undefined on a log that only reads. */
@@ -1482,7 +1483,7 @@ export class ChatLog {
       if (!reply) throw new Error('a reply must name the message it answers')
       thread = target.thread ?? target.reply ?? reply
     }
-    const name = sanitiseDisplayName(this.#opts.name)
+    const name = this.#displayName ?? sanitiseDisplayName(this.#opts.name)
     // A caller's attachment that does not check out is a bug in the caller,
     // and one that would be silently dropped here would be a file the
     // sender believes went out and nobody received.
@@ -1579,6 +1580,11 @@ export class ChatLog {
     if (!this.#credential) throw new Error('this log only reads; it was opened without a credential')
     if (credential.pubkey !== this.#credential.pubkey) throw new Error('renewed credential names a different participant')
     this.#credential = credential
+  }
+
+  /** Use this name for future messages. */
+  setDisplayName(name: string): void {
+    this.#displayName = sanitiseDisplayName(name)
   }
 
   #blocked(participant: string): boolean {

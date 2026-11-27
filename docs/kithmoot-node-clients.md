@@ -176,12 +176,28 @@ be disabled before a node room is offered in the UI.
 
 The browser candidate stores pairing metadata by account and private node
 room state by account and room. Creation saves keeper custody before enrolment.
-A v6 link asks through the node's separate ask door; an admitted guest enters
-without typing. The runtime owns the device access receiver, authenticated
+A v6 link asks through the node's separate ask door. A guest can give a name
+or connect a Nostr signer before sending the request. An admitted guest can
+change their name in **Room info → How you appear** while staying in the room.
+The runtime owns the device access receiver, authenticated
 room pool, keeper inbox, root epoch desk and managed relay-only call factory.
 Files, alternate relays, peer forwarding and automatic public profile lookups
 are disabled in this room path. Local unpairing leaves existing rooms running
 and does not prevent their keeper closing them.
+
+In the web and desktop clients, signed-in participants can supply their own
+signed kind 0 and an optional cropped profile photo under **How you appear**.
+The room carries both inside encrypted presence. The receiving client checks
+the kind-0 signature against the participant key and displays the supplied
+image bytes. Room membership, chat and call surfaces send no kind-0 queries
+or requests to the profile image host. A participant can reuse their profile
+and crop on the same device. The crop is asserted by the participant in the
+room and is independent of the image URL in the signed event.
+
+On web and desktop, open a sender's participant details from a room message
+to choose or remove a photo on this device. The crop is stored for the viewing
+identity and the sender's exact public key. It is displayed from local bytes
+and does not initiate a profile lookup, upload or request to an image host.
 
 Signed `node` announcements repeat the pinned room record and do not migrate
 an existing room. Signed `node-grant` controls pass through the persisted

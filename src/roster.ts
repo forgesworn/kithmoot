@@ -16,6 +16,12 @@ import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwn
 import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
 import { readLiveRecordingState, recordingProfile } from './live-recording.js'
 import { sanitiseSpryKey } from './spry-key.js'
+import { readRoomProfile } from './room-profile.js'
+
+function assertionTime(value: unknown, updatedAt: number): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 &&
+    value <= (updatedAt + MAX_FUTURE_SKEW_SECONDS) * 1000 ? value : undefined
+}
 
 export interface EncodeRosterOptions {
   roomId: string
@@ -116,6 +122,8 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
+    nameAt: assertionTime(entry.nameAt, entry.updatedAt),
+    profileAt: assertionTime(entry.profileAt, entry.updatedAt),
     // Same rule as the name and the assist offer, and for the same reason:
     // never publish something another client has to defuse. `undefined` is
     // dropped by JSON.stringify, so an entry without a page-session id is
@@ -229,6 +237,7 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const name = sanitiseDisplayName(entry.name)
     if (name === undefined) delete entry.name
     else entry.name = name
+    entry.nameAt = assertionTime(entry.nameAt, entry.updatedAt)
     // The third boundary, and the one with arithmetic behind it: an assist
     // offer is a claim about somebody else's uplink, published by a client
     // that owes us nothing, and it feeds straight into the sums that decide
@@ -343,6 +352,9 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     if (!verdict.ok) return null
     if (!hexEquals(verdict.device, entry.device)) return null
     if (!hexEquals(verdict.participant, entry.participant)) return null
+    entry.profileAt = assertionTime(entry.profileAt, Math.min(entry.updatedAt, opts.now))
+    entry.profile = entry.profileAt === undefined ? undefined : readRoomProfile(entry.profile, entry.participant, opts.now)
+    entry.nameAt = assertionTime(entry.nameAt, opts.now)
 
     // Deliberately NOT restamping verifiedSymbol onto the credential here.
     // It would be truthful at the moment of writing, but it hands a future

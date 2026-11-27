@@ -128,6 +128,10 @@ test('meeting mode locks an attendee, and holds when the attendee\'s app ignores
     await b.locator('#toggleCamera').click()
     await expect(b.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
     await expect.poll(async () => (await a.evaluate(remotePictures)).length, { message: 'a speaker is seen again', timeout: 60_000 }).toBeGreaterThan(0)
+    await a.locator('#meetingPeople').getByRole('button', { name: 'Move to audience', exact: true }).click()
+    await expect(b.locator('#toggleMic')).toHaveClass(/meetingLocked/)
+    await expect(b.locator('#toggleCamera')).toHaveAttribute('data-on', 'false')
+    await expect.poll(async () => (await a.evaluate(remotePictures)).length).toBe(0)
   } finally {
     await aContext.close()
     await bContext.close()

@@ -740,7 +740,7 @@ describe('chat display names', () => {
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('name')
   })
 
-  it('sends under the name the log was given, and never lets it stand for the credential', async () => {
+  it('uses the current name for future sends and keeps the same credential', async () => {
     const { roomId, roomKey, deviceSk, identity, credential } = await fixture()
     const relay = new SimRelay()
     const log = new ChatLog({
@@ -758,6 +758,11 @@ describe('chat display names', () => {
     expect(sent.name).toBe('Robin')
     // The credential is still what says who sent this.
     expect(sent.participant).toBe(identity.pubkey)
+
+    log.setDisplayName('  Robin Live  ')
+    await log.send('hello again')
+    expect(log.messages().find(message => message.text === 'hello room')?.name).toBe('Robin')
+    expect(log.messages().find(message => message.text === 'hello again')).toMatchObject({ name: 'Robin Live', participant: identity.pubkey })
     log.close()
   })
 })

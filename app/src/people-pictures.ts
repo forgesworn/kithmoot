@@ -8,12 +8,16 @@ const pending = new Map<string, Promise<Blob | undefined>>()
 let requests = new AbortController()
 let clearing = Promise.resolve()
 
-export function forgetPeoplePictures(): Promise<void> {
+export function cancelPeoplePictureLoads(): void {
   requests.abort()
   requests = new AbortController()
   pending.clear()
   visible?.disconnect()
   waiting.clear()
+}
+
+export function forgetPeoplePictures(): Promise<void> {
+  cancelPeoplePictureLoads()
   clearing = clearing.then(async () => {
     try { await globalThis.caches?.delete(CACHE_NAME) } catch { /* The browser may disable storage. */ }
   })
@@ -54,6 +58,16 @@ async function readPicture(response: Response): Promise<Blob | undefined> {
   } finally {
     await reader.cancel().catch(() => {})
   }
+}
+
+/** Read already available bytes. Room profile sharing never fetches a URL. */
+export async function cachedPeoplePicture(url: string): Promise<Blob | undefined> {
+  try {
+    await clearing
+    const cache = await globalThis.caches?.open(CACHE_NAME)
+    const saved = await cache?.match(url)
+    if (saved && Number(saved.headers.get('X-KithMoot-Expires')) > Date.now()) return await readPicture(saved)
+  } catch { /* An unavailable cache is an absent picture. */ }
 }
 
 async function pictureFrom(url: string, signal: AbortSignal): Promise<Blob | undefined> {

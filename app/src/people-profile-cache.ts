@@ -1,5 +1,7 @@
 import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
+import { newerProfile } from '../../src/room-profile.js'
+export { newerProfile } from '../../src/room-profile.js'
 
 const PREFIX = 'kithmoot.people-profiles.v1.'
 const MAX_ENTRIES = 2_000
@@ -93,9 +95,4 @@ export class PeopleProfileCache {
         row.event.created_at <= now + 60 && Number.isSafeInteger(row.checked) && now - 30 * DAY <= row.checked && row.checked <= now)
     } catch { return [] }
   }
-}
-
-/** NIP-01 replacement ordering. */
-export function newerProfile(event: Pick<Event, 'created_at' | 'id'>, previous: Pick<Event, 'created_at' | 'id'>): boolean {
-  return event.created_at > previous.created_at || event.created_at === previous.created_at && event.id < previous.id
 }

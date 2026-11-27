@@ -264,6 +264,10 @@ export class RoomBoardPanel {
       frame.addEventListener('load', () => {
         if (!current()) return
         const child = frame.contentWindow as RoomBoardWindow
+        const style = child.document.createElement('link')
+        style.rel = 'stylesheet'
+        style.href = new URL('girnel-room.css', new URL(import.meta.env.BASE_URL, location.origin)).href
+        child.document.head.append(style)
         const start = () => {
           if (!current() || !child.girnelRoomBoard) return
           try {

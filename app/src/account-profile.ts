@@ -12,7 +12,11 @@ export class AccountProfileBook {
 
   select(account: string | undefined, networkEnabled: boolean): void {
     const selected = networkEnabled ? account : undefined
-    if (selected === this.#account) return
+    if (selected === this.#account) {
+      this.#book?.resume()
+      if (selected) this.#book?.want([selected], 'public')
+      return
+    }
     this.#book?.close()
     this.#book = undefined
     this.#account = selected
@@ -26,6 +30,8 @@ export class AccountProfileBook {
   get(account: string): Profile | undefined {
     return account === this.#account ? this.#book?.get(account) : undefined
   }
+
+  pause(): void { this.#book?.pause() }
 
   setNip05Automatic(enabled: boolean): void {
     this.#verifyAddresses = enabled

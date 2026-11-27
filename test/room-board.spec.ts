@@ -246,7 +246,12 @@ test('the room’s board opens from its chat for people with only the link', asy
   await description.pressSequentially('forty')
   await bob.waitForTimeout(600)
   await expect(descriptionActivity(bob)).toHaveCount(0)
-  await tool(bob, 'Save description').click()
+  const saveDescription = tool(bob, 'Save description')
+  await expect(saveDescription).toBeEnabled()
+  await expect(saveDescription).toHaveCSS('border-top-style', 'solid')
+  await expect(saveDescription).toHaveCSS('border-top-width', '1px')
+  await expect(saveDescription).toHaveCSS('border-top-color', await saveDescription.evaluate(button => getComputedStyle(button).color))
+  await saveDescription.click()
   await expect(board(ada).getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Enough for forty')
   await expect(descriptionActivity(ada)).toHaveCount(1)
 
