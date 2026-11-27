@@ -4,7 +4,6 @@ import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
-import { NostrRelayPool } from '../src/relay-pool.js'
 import { openRoomDetails, TEST_RELAY_WS, showChats, openRoomMenu, openMember } from './browser.js'
 
 /**
@@ -207,26 +206,18 @@ test('a bare word that only echoes an announced name does not light up, and a re
   await device(context)
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
 
-  // This case deliberately enables public profiles to test the shown-name correction.
-  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
-
-  // Bob announces "Buzz" joining the room, but his kind-0 profile - seeded
-  // straight onto the room's own relay, as the door would find it - calls
-  // him Bob. That mismatch is the whole bug: the announced name should
-  // never outlive the profile that corrects it.
+  // Bob joins as "Buzz", then shares his signed profile with the room.
   const bobSecret = generateSecretKey()
   const bobPubkey = getPublicKey(bobSecret)
-  const profiles = new NostrRelayPool([TEST_RELAY_WS])
   const bob = await RoomAgent.join({ link, identity: localIdentity(bobSecret), relays: [TEST_RELAY_WS], name: 'Buzz' })
   try {
-    await profiles.publish(finalizeEvent(
-      { kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Bob' }) },
-      bobSecret,
-    ))
-
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await bob.session.setRoomProfile({ event: finalizeEvent(
+      { kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Bob' }) },
+      bobSecret,
+    ) })
 
     // Wait for the profile to actually land: the roster shows Bob by his
     // profile name, not the one he announced joining under.
@@ -265,7 +256,6 @@ test('a bare word that only echoes an announced name does not light up, and a re
     const picked = page.locator('#chatLog .msg').filter({ hasText: '@Bob' }).last()
     await expect(picked.locator('.mention')).toHaveCount(1)
   } finally {
-    profiles.close()
     await bob.leave()
     await context.close()
   }

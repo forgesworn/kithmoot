@@ -390,7 +390,7 @@ test('incoming chat preserves the reading position and offers a way to the lates
   } finally { await a.close(); await b.close() }
 })
 
-test('public profiles start on, and both choices survive a new visit', async ({ browser, baseURL }) => {
+test('the public profile preference survives a new visit without looking up room members', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
   const queries: string[][] = []
@@ -406,8 +406,6 @@ test('public profiles start on, and both choices survive a new visit', async ({ 
       upstream.send(raw)
     })
   })
-  // Somebody to look up. A browser alone in a room asks nothing: the only
-  // key there is the one it made itself, which it never asks about.
   const other = await contextFor(browser, baseURL!)
   try {
     const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [relay])
@@ -419,22 +417,18 @@ test('public profiles start on, and both choices survive a new visit', async ({ 
     await expect(page.locator('#chatLog')).toContainText('Public profiles are available')
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).toBeChecked()
-    await expect.poll(() => queries.length).toBeGreaterThan(0)
-    const enabledCount = queries.length
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).toBeChecked()
-    await expect.poll(() => queries.length).toBeGreaterThan(enabledCount)
     await page.locator('#lookupProfiles').uncheck()
-    const offCount = queries.length
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
-    expect(queries).toHaveLength(offCount)
     await page.locator('#lookupProfiles').check()
-    await expect.poll(() => queries.length).toBeGreaterThan(offCount)
+    await expect(page.locator('#lookupProfiles')).toBeChecked()
+    expect(queries).toEqual([])
   } finally { await context.close(); await other.close() }
 })
 
