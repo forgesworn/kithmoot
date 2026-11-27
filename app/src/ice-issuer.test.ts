@@ -32,6 +32,10 @@ describe('independent issuer boundary', () => {
     const init = (send.mock.calls[0] as unknown as [string, RequestInit])[1]
     expect(init.headers).toEqual({ 'X-KithMoot-Turn-Urls': 'extended-v1' })
   })
+  it('refuses a standby route supplied by an issuer instead of the device', async () => {
+    const standby = { urls: ['turns:standby.example:443?transport=tcp'], username: 'standby-device', credential: 'standby-password' }
+    expect(await fetchTurnCredential('/turn', { fetch: async () => response({ ...profile, standby }) })).toBeUndefined()
+  })
   it('sends no cookies, authorisation, referrer, body or room information and refuses redirects', async () => {
     const send = vi.fn(async () => response())
     expect(await fetchTurnCredential('https://issuer.example/turn', { fetch: send })).toEqual({

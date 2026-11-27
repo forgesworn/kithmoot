@@ -1,6 +1,6 @@
 import { browserDefaultTurnUrls, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
-import { callRelayServers, type CallRelay } from './call-relay.js'
-import { CALL_RELAY_PROFILE_LIMIT, parseCallRelayProfile } from './call-relay-profile.js'
+import { CALL_RELAY_PROFILE_LIMIT, callRelayServers, type CallRelay } from './call-relay.js'
+import { parseCallRelayProfile } from './call-relay-profile.js'
 
 /** Said in the call when no relay is configured or the credential mint fails.
  *  It names a call relay and where to add one: "relay" alone reads as the
@@ -84,6 +84,8 @@ export async function fetchTurnCredential(endpoint: string, options: Pick<IceRes
       if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined
       const { ttl, ...profile } = body as Record<string, unknown>
       if (typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl < TURN_MINT_MIN_TTL_SECONDS || ttl > TURN_MINT_MAX_TTL_SECONDS) return undefined
+      // Only device-reviewed settings may add a standby relay.
+      if ('standby' in profile) return undefined
       const relay = parseCallRelayProfile(JSON.stringify(profile))
       const server: RTCIceServer = { urls: relay.urls, username: relay.username, credential: relay.credential }
       deadlines.set(server, started + ttl * 1000)

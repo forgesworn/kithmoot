@@ -6,6 +6,22 @@ import { resolveIceServers } from './ice-resolve.js'
 const relay = parseCallRelay('turn:relay.example:3478, turns:relay.example:5349', 'friend', 'test-secret')!
 
 describe('a device-owned call relay', () => {
+  it('keeps saved standby credentials out of the initial ICE configuration', () => {
+    const standby = parseCallRelay('turns:standby.example:443?transport=tcp', 'standby-device', 'standby-password')!
+    const values = new Map<string, string>()
+    const store = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+    saveCallRelay(store, { ...relay, standby })
+    const saved = loadCallRelay(store)!
+    expect(saved).toEqual({ ...relay, standby })
+    expect(callRelayServers(saved)).toEqual(callRelayServers(relay))
+    saveCallRelay(store, undefined)
+    expect(loadCallRelay(store)).toBeUndefined()
+  })
+
   it('uses credentials only with the explicitly configured hosts, even for an existing room', async () => {
     const result = await resolveIceServers(['turn:untrusted-room.example:3478'], {
       relay, endpoint: '/turn', location: { protocol: 'https:', hostname: 'site.example' },

@@ -364,7 +364,7 @@ import { roomStreamName } from '../../src/channel-names.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelaySetConfiguration } from '../../src/turn-configuration.js'
-import { callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_STANDBY, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, withCallRelayStandby, type CallRelay, type CallRelayLogin } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
 import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare, loadSpryConsent, saveSpryConsent, parseAccountSpryPairing } from './spry-pairing.js'
@@ -376,7 +376,7 @@ import { addressHost, callPathView, spryFailureLine, type CallPathInput } from '
 import { createRelayPage, type RelayCheckCandidate, type RelayCheckRoom } from './relay-settings-page.js'
 import { waitForExistingCall } from './call-startup.js'
 import { spryRequest, localTurnUrls, type SpryPairing } from '../../src/spry.js'
-import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
+import { INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
 import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
@@ -466,7 +466,7 @@ import { forgeSwornStorageNotice } from './forgesworn-stored-file.js'
 // The icon sprite, written once, before anything draws a button that uses it.
 installIcons()
 // An eye button beside each secret field the page is built with.
-for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey', 'file key'], ['bothyCode', 'pairing code']] as const) {
+for (const [id, what] of [['callRelayPassword', 'relay password'], ['callRelayStandbyPassword', 'standby relay password'], ['attachKey', 'file key'], ['bothyCode', 'pairing code']] as const) {
   const field = document.getElementById(id)
   if (field instanceof HTMLInputElement) addReveal(field, what)
 }
@@ -16368,6 +16368,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     let deviceRelay: CallRelay | undefined
     try { if (!roomNode) deviceRelay = loadCallRelay(localStorage) } catch (error) { if (!spryPairing) throw error }
     const relayOnly = !!roomNode || ($('joinRelayOnly') as HTMLInputElement).checked
+    const standbyIce = relayOnly && deviceRelay?.standby ? relayOnlyIceConfiguration(callRelayServers(deviceRelay.standby)) : undefined
+    const standbyDevices = new Set<string>()
+    const standbyConnections = new WeakSet<RTCPeerConnection>()
     let resolvedIceServers: RTCIceServer[] = roomNode ? [] : deviceRelay ? callRelayServers(deviceRelay) : relayOnly
       ? await resolveIceServers(roomIceUrls, deviceRelay)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
@@ -16422,7 +16425,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     let pendingIceRefresh: Promise<void> | undefined
     const refreshIce = (): Promise<void> => {
-      if (roomNode) return Promise.resolve()
+      if (roomNode || standbyIce) return Promise.resolve()
       if (spryActive) return Promise.resolve()
       if (publicCall) {
         // Renewal runs only while this session has a call.
@@ -16469,10 +16472,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) void refreshIce()
     const factory: PeerFactory = nodeRuntime?.factory ?? ((context?: PeerContext) => {
       const available = liveIceServers(resolvedIceServers)
+      const standby = context?.remoteDevice && standbyDevices.has(context.remoteDevice) ? standbyIce : undefined
       const configuration = relayOnly
-        ? relayOnlyIceConfiguration(available)
+        ? standby ?? relayOnlyIceConfiguration(available)
         : { iceServers: context?.tier === 'turn' ? available : stunOnly }
       const pc = callRelayPeerConnection(configuration)
+      if (standby) standbyConnections.add(pc)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
       // only honest source for whether this device could carry anybody.
@@ -16486,6 +16491,19 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       registerConnection(pc, context)
       return pc as unknown as RTCPeerConnectionLike
     })
+    if (standbyIce) factory.onIceRestart = (connection, restart) => {
+      const pc = connection as unknown as RTCPeerConnection
+      if (!alive() || pc.signalingState === 'closed') return
+      if (!standbyConnections.has(pc)) {
+        try {
+          callRelaySetConfiguration(pc, { ...pc.getConfiguration(), ...standbyIce })
+          standbyConnections.add(pc)
+          const device = connectionDevices.get(pc)
+          if (device) standbyDevices.add(device)
+        } catch { /* The existing ICE restart may still recover the primary. */ }
+      }
+      restart()
+    }
 
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
@@ -21813,9 +21831,7 @@ function renderRelayServer(status = ''): void {
   let state: 'none' | 'saved' | 'unreadable' = 'none'
   try {
     const relay = loadCallRelay(localStorage)
-    ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
-    ;($('callRelayUsername') as HTMLInputElement).value = relay?.username ?? ''
-    ;($('callRelayPassword') as HTMLInputElement).value = relay?.credential ?? ''
+    writeCallRelayForm(relay)
     if (relay) { state = 'saved'; setIfChanged($('callRelayHead'), `Set up: ${addressHost(relay.urls[0])}`) }
   } catch {
     state = 'unreadable'
@@ -21828,18 +21844,42 @@ function renderRelayServer(status = ''): void {
   $('callRelayStatus').textContent = status
 }
 
-const CALL_RELAY_FIELDS = ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']
+const PRIMARY_RELAY_FIELDS = ['callRelayUrls', 'callRelayUsername', 'callRelayPassword'] as const
+const STANDBY_RELAY_FIELDS = ['callRelayStandbyUrls', 'callRelayStandbyUsername', 'callRelayStandbyPassword'] as const
+const CALL_RELAY_FIELDS = [...PRIMARY_RELAY_FIELDS, ...STANDBY_RELAY_FIELDS]
+
+function writeCallRelayForm(relay: CallRelay | undefined): void {
+  const write = ([urls, username, password]: readonly [string, string, string], login?: CallRelayLogin) => {
+    ;($(urls) as HTMLInputElement).value = login?.urls.join(', ') ?? ''
+    ;($(username) as HTMLInputElement).value = login?.username ?? ''
+    ;($(password) as HTMLInputElement).value = login?.credential ?? ''
+  }
+  write(PRIMARY_RELAY_FIELDS, relay)
+  write(STANDBY_RELAY_FIELDS, relay?.standby)
+  ;($('callRelayStandby') as HTMLDetailsElement).open = !!relay?.standby
+}
+
+function readCallRelayForm(): CallRelay | undefined {
+  const read = ([urls, username, password]: readonly [string, string, string]) => parseCallRelay(
+    ($(urls) as HTMLInputElement).value, ($(username) as HTMLInputElement).value, ($(password) as HTMLInputElement).value)
+  const primary = read(PRIMARY_RELAY_FIELDS)
+  const standby = read(STANDBY_RELAY_FIELDS)
+  return standby ? withCallRelayStandby(primary, standby) : primary
+}
+
 function clearCallRelayErrors(): void {
   for (const id of CALL_RELAY_FIELDS) $(id).removeAttribute('aria-invalid')
   $('callRelayFieldError').textContent = ''
 }
 /** A refused entry: the parser's message beside the fields, and the fields it is about marked. */
 function showCallRelayError(message: string): void {
-  const addressesOnly = message.startsWith('Use turn:')
-  for (const id of CALL_RELAY_FIELDS) {
-    if (!addressesOnly || id === 'callRelayUrls') $(id).setAttribute('aria-invalid', 'true')
-    else $(id).removeAttribute('aria-invalid')
+  const addressesOnly = message.startsWith('Use turn:') || message === INVALID_CALL_RELAY_STANDBY
+  const hasStandby = STANDBY_RELAY_FIELDS.some(id => ($(id) as HTMLInputElement).value)
+  const fields = hasStandby ? CALL_RELAY_FIELDS : PRIMARY_RELAY_FIELDS
+  for (const id of fields) {
+    if (!addressesOnly || id.endsWith('Urls')) $(id).setAttribute('aria-invalid', 'true')
   }
+  if (hasStandby) ($('callRelayStandby') as HTMLDetailsElement).open = true
   $('callRelayFieldError').textContent = message
 }
 
@@ -21902,20 +21942,19 @@ $('callRelaySave').addEventListener('click', () => {
   cancelCallRelayActions()
   clearCallRelayErrors()
   try {
-    const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
-      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    const relay = readCallRelayForm()
     saveCallRelay(localStorage, relay)
     renderRelayServer(relay ? 'Saved. Leave and reopen a room to use it.' : 'Removed. Leave and reopen a room to stop using it.')
     renderCalls()
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
-    if (message.startsWith('Enter a TURN') || message.startsWith('Use turn:')) showCallRelayError(message)
+    if (message.startsWith('Enter a TURN') || message.startsWith('Use turn:') || message === INVALID_CALL_RELAY_STANDBY) showCallRelayError(message)
     else $('callRelayStatus').textContent = 'The relay server could not be saved. Check browser storage and try again.'
   }
 })
 $('callRelayRemove').addEventListener('click', async () => {
   cancelCallRelayActions()
-  if (!await confirmAction({ title: 'Remove this relay server?', message: 'Its address and login are deleted from this device. Your calls stop using it the next time you open a room.', confirmLabel: 'Remove', danger: true })) return
+  if (!await confirmAction({ title: 'Remove this relay server?', message: 'The saved relay addresses and logins are deleted from this device. Your calls stop using them the next time you open a room.', confirmLabel: 'Remove', danger: true })) return
   try {
     saveCallRelay(localStorage, undefined)
     renderRelayServer('Removed. Leave and reopen a room to stop using it.')
@@ -21936,9 +21975,7 @@ $('callRelayFile').addEventListener('change', async () => {
     const relay = parseCallRelayProfile(await file.text())
     if (generation !== callRelayActionGeneration) return
     clearCallRelayErrors()
-    ;($('callRelayUrls') as HTMLInputElement).value = relay.urls.join(', ')
-    ;($('callRelayUsername') as HTMLInputElement).value = relay.username
-    ;($('callRelayPassword') as HTMLInputElement).value = relay.credential
+    writeCallRelayForm(relay)
     $('callRelayStatus').textContent = 'File imported. Check the addresses, then save. Nothing has been sent or saved yet.'
   } catch {
     if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = INVALID_CALL_RELAY_PROFILE
@@ -21953,8 +21990,7 @@ $('callRelayCheck').addEventListener('click', async () => {
   try {
     const relay = loadCallRelay(localStorage)
     if (!relay) { $('callRelayStatus').textContent = 'Save a relay server before testing it.'; return }
-    const reviewed = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
-      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    const reviewed = readCallRelayForm()
     if (JSON.stringify(reviewed) !== JSON.stringify(relay)) {
       $('callRelayStatus').textContent = 'Save your changes first, so the test uses the addresses shown here.'
       return
@@ -21962,7 +21998,10 @@ $('callRelayCheck').addEventListener('click', async () => {
     ;($('callRelayCheck') as HTMLButtonElement).disabled = true
     $('callRelayStatus').textContent = 'Testing your relay…'
     await checkCallRelay(relay, controller.signal)
-    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your relay. This checks this device, not a call with someone else.'
+    if (relay.standby) await checkCallRelay(relay.standby, controller.signal)
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = relay.standby
+      ? 'Test data passed through both relays on this device.'
+      : 'Test data passed through your relay. This checks this device, not a call with someone else.'
   } catch {
     if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = CALL_RELAY_CHECK_FAILED
   } finally {
@@ -22170,8 +22209,8 @@ function leaveSettings(): void {
   nodeSettings?.cancel()
   ;($('nodePairingInput') as HTMLInputElement).value = ''
   cancelCallRelayActions()
-  // Do not keep a saved password in the hidden settings form.
-  ;($('callRelayPassword') as HTMLInputElement).value = ''
+  // Clear saved passwords from the hidden settings form.
+  for (const id of [PRIMARY_RELAY_FIELDS[2], STANDBY_RELAY_FIELDS[2]]) ($(id) as HTMLInputElement).value = ''
   closeAccountMessageViews()
   reconcileAccountMessageViews()
   if (!settingsHomes) return

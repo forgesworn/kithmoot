@@ -401,6 +401,16 @@
           <input id="callRelayUsername" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callRelayFieldError" />
           <label for="callRelayPassword">Password</label>
           <input id="callRelayPassword" type="password" autocomplete="off" enterkeyhint="done" aria-describedby="callRelayFieldError" />
+          <details id="callRelayStandby">
+            <summary>Standby relay</summary>
+            <p class="note" id="callRelayStandbyHint">Used if the primary relay fails during a Hide my IP call. Enter the standby operator's own addresses and login.</p>
+            <label for="callRelayStandbyUrls">Standby addresses</label>
+            <input id="callRelayStandbyUrls" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callRelayStandbyHint callRelayFieldError" />
+            <label for="callRelayStandbyUsername">Standby username</label>
+            <input id="callRelayStandbyUsername" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callRelayFieldError" />
+            <label for="callRelayStandbyPassword">Standby password</label>
+            <input id="callRelayStandbyPassword" type="password" autocomplete="off" enterkeyhint="done" aria-describedby="callRelayFieldError" />
+          </details>
           <p id="callRelayFieldError" class="note" role="alert"></p>
           <div class="relayActions">
             <button id="callRelaySave" type="button" class="primary">Save</button>
@@ -408,8 +418,8 @@
             <button id="callRelayRemove" type="button" hidden>Remove…</button>
           </div>
           <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
-          <p class="note" id="callRelayCheckNote">Testing connects to your relay and sends test data. It sees your IP address and login. No camera or microphone is used.</p>
-          <p class="note">Saved on this device. The password never goes in room links. The relay sees your IP address and when and how much you call, not what's said.</p>
+          <p class="note" id="callRelayCheckNote">Testing sends data through each saved relay. Each sees your IP address and its own login. No camera or microphone is used.</p>
+          <p class="note">Saved on this device. Room links exclude relay passwords. A relay sees your IP address and when and how much you call. WebRTC encrypts what you say.</p>
           <p class="note" id="callRelayReopen" hidden>After a change, leave and reopen a room to use it.</p>
         </section>
         <section class="settingsPage callsPage" data-settings-page="callPublic" data-settings-title="Public call relays" hidden>

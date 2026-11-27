@@ -92,6 +92,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  spry-call-failover:
+    name: Approved Spry standby during relay-only calls
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: forgesworn/spry-turn
+          ref: 0ef20ce652be08572b71d717c58c85baed6fa528
+          path: .spry-failover-source
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: cargo build --locked --release --features tls --bin spry-turn
+        working-directory: .spry-failover-source
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:spry-failover
+        env:
+          E2E_SPRY_RELAY_BINARY: ${{ github.workspace }}/.spry-failover-source/target/release/spry-turn
+
   publisher-boundary:
     name: Browser protected sharing and local publisher independence
     needs: changes

@@ -14,6 +14,21 @@ storage, like its other device settings; use a trusted browser profile.
 Removing the relay deletes the saved login. Neither client substitutes an
 unrelated relay when the saved configuration cannot be read.
 
+### Standby for relay-only browser calls
+
+Under **Settings → Calls → Relay server**, open **Standby relay** and enter
+the second operator's TURN addresses and this device's login. Save and
+reopen the room with **Hide my IP** selected. The call starts on the
+primary. If an established peer connection loses that route, KithMoot
+restarts ICE using the saved standby login and keeps relay-only mode. Clear
+the standby fields and save to remove just the backup.
+
+A connection file can include an optional `standby` object with its own
+`urls`, `username` and `credential`. Review both addresses before saving.
+The login for each relay stays on the device and goes only to that relay.
+**Test** sends synthetic data through each saved relay in turn. [Local
+failover checks](research/spry-call-failover-20261127.md)
+
 A relay you already run, or a managed TURN provider, supplies:
 
 - **Relay addresses:** for example `turn:relay.example:3478,
