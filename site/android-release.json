@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.186",
-  "versionCode": 209,
+  "versionName": "0.6.187",
+  "versionCode": 210,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 72537628,
-  "apkSha256": "4847a442319ef877cf2fb8418bb8b3b39931514668470382e467123ba615c14b",
+  "apkBytes": 72541724,
+  "apkSha256": "3c3c29d07d0c4a803a9f4882ffae9a109a132641e8f67f20bb2c0cf0402c745f",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.186-production.apk",
+  "downloadFilename": "kithmoot-0.6.187-production.apk",
   "releaseNotes": [
-    "Put the keyboard away over the room board and it stays away, instead of coming back every 20 seconds.",
-    "Back saves a card title or description you were editing, as tapping elsewhere does."
+    "Use the phone's existing room permission to reopen saved chats and send messages until it expires.",
+    "See the expiry in Room info and choose Renew access before travelling."
   ]
 }
