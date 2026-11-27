@@ -534,13 +534,13 @@ html[data-rail-dragging] * { user-select: none; }
 /* ---- The room header and what stands in for the rows it replaced --------- */
 
 /* Search is an icon in the header from 600 px; below that it is a menu item.
-   And at 320 px with Huge text the title needs the room, so Start call goes
-   into the menu too (renderRoomMenu says the same, from the same widths). */
+   At 320 px with Huge text, the call and share actions move into the menu
+   to leave room for the title (see renderRoomMenu). */
 @media (max-width: 599px) {
   .roomBar #chatSearch { display: none; }
 }
 @media (max-width: 359px) {
-  html[data-text-size="huge"] .roomBar #callToggle { display: none; }
+  html[data-text-size="huge"] .roomBar :is(#callToggle, #shareScreenFromChat) { display: none; }
   html[data-text-size="huge"] .roomIdentity .roomWho, html[data-text-size="huge"] .roomIdentity .roomMuted { display: none; }
   /* The name may take two lines rather than a few letters and an ellipsis. */
   html[data-text-size="huge"] .roomIdentity .roomTitle { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
