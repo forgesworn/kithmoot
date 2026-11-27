@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.189",
+  "currentRelease": "0.1.190",
   "releases": [
     {
-      "version": "0.1.189",
+      "version": "0.1.190",
       "updateTo": {
-        "version": "0.1.189",
-        "name": "0.1.189",
-        "pub_date": "2026-11-26T00:00:00Z",
-        "notes": "Drag the divider between the Board and chat to resize the two panes. Hide chat and Show chat remember the split.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.189/KithMoot-0.1.189-mac-arm64.zip",
-        "sha256": "39a6a831dd0a7bb17900cf9e20eba2741cbcdc3e56b9990c4b406c7a7a9f83d7",
-        "size": 199045887
+        "version": "0.1.190",
+        "name": "0.1.190",
+        "pub_date": "2026-11-27T00:00:00Z",
+        "notes": "Relay-only calls can recover through an approved standby Spry relay if the primary stops responding. Add a standby under Calls → Relay server in Settings.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.190/KithMoot-0.1.190-mac-arm64.zip",
+        "sha256": "6fb09f9c45cd91700355cdb6dd7804eb2ef902e8ce79f7671b2a31c6c7a962c5",
+        "size": 199046588
       }
     }
   ]
