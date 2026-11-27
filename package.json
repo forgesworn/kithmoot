@@ -89,6 +89,7 @@
     "test:call-relay": "playwright test --config playwright.call-relay.config.ts",
     "test:publisher": "playwright test --config playwright.publisher.config.ts",
     "test:independent-calls": "playwright test --config playwright.independent-calls.config.ts",
+    "test:spry-failover": "playwright test --config playwright.spry-failover.config.ts",
     "test:automatic-calls": "playwright test --config playwright.automatic-calls.config.ts",
     "test:spry-room-relay": "playwright test --config playwright.spry-room-relay.config.ts",
     "test:spry-standard-offer": "playwright test --config playwright.spry-standard-offer.config.ts",

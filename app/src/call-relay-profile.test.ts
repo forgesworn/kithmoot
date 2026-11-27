@@ -11,6 +11,10 @@ describe('provider-supplied call relay files', () => {
   it('normalises URL case through the existing device relay validator', () => {
     expect(parseCallRelayProfile(JSON.stringify({ ...login, urls: 'TURNS:RELAY.EXAMPLE:443?transport=TCP' }))).toEqual(login)
   })
+  it('keeps an approved standby address and its own login together', () => {
+    const standby = { urls: ['turns:backup.example:443?transport=tcp'], username: 'other-device', credential: 'other-password' }
+    expect(parseCallRelayProfile(JSON.stringify({ ...login, standby }))).toEqual({ ...login, standby })
+  })
   const invalid = [
     'null', '[]', '{"credential":"synthetic-password"', ' '.repeat(16_385),
     { ...login, apiKey: 'synthetic-root-key' }, { ...login, secret: 'synthetic-root-key' },
@@ -19,6 +23,8 @@ describe('provider-supplied call relay files', () => {
     { ...login, urls: ['turns:relay.example, turns:other.example'] },
     { ...login, urls: ['https://provider.example/credentials'] },
     { ...login, username: '' }, { ...login, credential: 'password\n' },
+    { ...login, standby: login }, { ...login, standby: { ...login, secret: 'root-key' } },
+    { ...login, standby: { ...login, standby: login } }, { ...login, standby: null },
     { iceServers: [login] }, { ...login, urls: new Array(9).fill(login.urls[0]) },
   ]
   for (const [index, value] of invalid.entries()) it(`rejects unsupported or unsafe input ${index} without exposing it`, () => {
