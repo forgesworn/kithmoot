@@ -48,33 +48,55 @@ function inputSize(bytes: Uint8Array): [number, number] | undefined {
   }
 }
 
+/** Make a room-safe thumbnail from locally cached image bytes. */
+export async function cachedPhotoThumbnail(blob: Blob): Promise<LogoImage | undefined> {
+  try {
+    const size = inputSize(new Uint8Array(await blob.arrayBuffer()))
+    if (!size || !size.every(n => n > 0 && n <= 8192) || size[0] * size[1] > MAX_INPUT_PIXELS) return
+    const bitmap = await createImageBitmap(blob)
+    try {
+      const pixels = Math.min(bitmap.width, bitmap.height)
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 96
+      canvas.getContext('2d')!.drawImage(bitmap, (bitmap.width - pixels) / 2, (bitmap.height - pixels) / 2,
+        pixels, pixels, 0, 0, canvas.width, canvas.height)
+      const thumbnail = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.76))
+      if (thumbnail) return logoFromCanvasEncoding(new Uint8Array(await thumbnail.arrayBuffer()), thumbnail.type === 'image/webp' ? 'image/webp' : 'image/png')
+    } finally { bitmap.close() }
+  } catch { /* The room can still share the profile without a picture. */ }
+}
+
 /** The chosen crop always becomes new local pixels. Original file bytes,
  * metadata, filenames and URLs never enter shared room or project records. */
 export function openLogoEditor(options: {
-  name: string; image?: LogoImage | null; removeLabel?: string; canRemove?: boolean
+  name: string; image?: LogoImage | null; removeLabel?: string; canRemove?: boolean; localPhoto?: boolean; sharedPhoto?: boolean
   save(image: LogoImage | null): Promise<void>
 }): HTMLDialogElement {
+  const localPhoto = options.localPhoto === true
+  const subject = localPhoto || options.sharedPhoto ? 'photo' : 'logo'
+  const title = subject === 'photo' ? 'Photo' : 'Logo'
   const dialog = document.createElement('dialog')
   dialog.className = 'logoEditor'
   dialog.setAttribute('aria-labelledby', 'logoEditorTitle')
   // Only static controls use markup; names and errors are textContent.
   dialog.innerHTML = `<h2 id="logoEditorTitle"></h2>
-    <p class="note">Choose a PNG, JPG or still WebP, up to 8 MB and 16 megapixels. Crop it here before sharing.</p>
+    <p class="note">Choose a PNG, JPG or still WebP, up to 8 MB and 16 megapixels. ${localPhoto ? 'This photo stays on this device.' : options.sharedPhoto
+    ? 'This device keeps the crop for rooms you join with this account.' : 'Crop it here before sharing.'}</p>
     <label class="logoFile">Choose image<input type="file" accept="image/png,image/jpeg,image/webp" /></label>
-    <figure><canvas width="256" height="256" role="img" aria-label="Logo crop preview"></canvas><figcaption>Preview</figcaption></figure>
+    <figure><canvas width="256" height="256" role="img" aria-label="${title} crop preview"></canvas><figcaption>Preview</figcaption></figure>
     <label>Zoom<input type="range" min="1" max="4" step="0.05" value="1" /></label>
     <label>Horizontal position<input type="range" min="0" max="100" value="50" /></label>
     <label>Vertical position<input type="range" min="0" max="100" value="50" /></label>
     <p class="note logoEditorStatus" role="status" aria-live="polite"></p>
-    <div class="logoEditorActions"><button type="button" data-action="remove"></button><button type="button" data-action="cancel">Cancel</button><button type="button" data-action="save" class="primary" disabled>Share logo</button></div>`
-  dialog.querySelector('h2')!.textContent = `Logo for ${options.name}`
+    <div class="logoEditorActions"><button type="button" data-action="remove"></button><button type="button" data-action="cancel">Cancel</button><button type="button" data-action="save" class="primary" disabled>${localPhoto ? 'Save photo' : `Share ${subject}`}</button></div>`
+  dialog.querySelector('h2')!.textContent = `${title} for ${options.name}`
   const canvas = dialog.querySelector('canvas')!, file = dialog.querySelector('input[type=file]') as HTMLInputElement
   const ranges = [...dialog.querySelectorAll<HTMLInputElement>('input[type=range]')]
   const status = dialog.querySelector('.logoEditorStatus') as HTMLElement
   const save = dialog.querySelector('[data-action=save]') as HTMLButtonElement
   const remove = dialog.querySelector('[data-action=remove]') as HTMLButtonElement
   const cancel = dialog.querySelector('[data-action=cancel]') as HTMLButtonElement
-  remove.textContent = options.removeLabel ?? 'Remove logo'
+  remove.textContent = options.removeLabel ?? `Remove ${subject}`
   remove.disabled = !options.image && !options.canRemove
   const restoreFocus = document.activeElement as HTMLElement | null
   let bitmap: ImageBitmap | undefined, generation = 0, closed = false, busy = false
@@ -117,7 +139,9 @@ export function openLogoEditor(options: {
       if (opened.width * opened.height > MAX_INPUT_PIXELS || opened.width > 8192 || opened.height > 8192) throw new Error('Choose an image up to 16 megapixels.')
       bitmap = opened; opened = undefined
       ranges[0]!.value = '1'; ranges[1]!.value = ranges[2]!.value = '50'
-      draw(); status.textContent = 'Adjust the crop, then share it with everyone in this room or project.'
+      draw()
+      status.textContent = localPhoto ? 'Adjust the crop, then save it on this device.' : options.sharedPhoto
+        ? 'Adjust the crop, then share it with everyone in this room.' : 'Adjust the crop, then share it with everyone in this room or project.'
     } catch (error) {
       opened?.close()
       if (closed || current !== generation) return
@@ -132,18 +156,19 @@ export function openLogoEditor(options: {
       if (!blob) continue
       try { return logoFromCanvasEncoding(new Uint8Array(await blob.arrayBuffer()), blob.type === 'image/png' ? 'image/png' : 'image/webp') } catch { /* Try a smaller fresh encoding. */ }
     }
-    throw new Error('This crop could not fit the logo limit. Choose a simpler image.')
+    throw new Error(`This crop could not fit the ${subject} limit. Choose a simpler image.`)
   }
   const apply = async (clear: boolean) => {
     if (closed || busy || !clear && !bitmap) return
-    busy = true; setControls(); status.textContent = clear ? 'Removing logo…' : 'Sharing logo…'
+    busy = true; setControls()
+    status.textContent = clear ? `Removing ${subject}…` : localPhoto ? 'Saving photo…' : `Sharing ${subject}…`
     try {
       const image = clear ? null : await encodeCrop()
       if (closed) return
       await options.save(image)
       dialog.close()
     } catch (error) {
-      if (!closed) status.textContent = error instanceof Error ? error.message : 'The logo could not be shared. Try again.'
+      if (!closed) status.textContent = error instanceof Error ? error.message : `The ${subject} could not be ${localPhoto ? 'saved' : 'shared'}. Try again.`
     } finally { busy = false; if (!closed) setControls() }
   }
   save.addEventListener('click', () => { void apply(false) })

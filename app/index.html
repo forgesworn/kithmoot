@@ -1736,11 +1736,9 @@
           <summary>You look after this room</summary>
           <p class="note">
             <strong>Remove</strong> moves the room onto a new key that
-            person is not given: from then on they can read nothing, and
-            what they already read stays theirs. <strong>Mute</strong> is a
-            request their own app does as it is asked, by switching off
-            their camera and microphone; nothing in between can force it.
-            <strong>Close</strong> ends the room for everybody.
+            person is not given. In meeting mode, use <strong>Mute and move to
+            audience</strong> to take a speaker off the stage. <strong>Request
+            mute</strong>, where available, asks a participant’s app to stop sending media.
           </p>
           <div id="hostList"></div>
           <div class="hostRow">
@@ -1977,6 +1975,17 @@
       <section class="infoPage" data-info-page="appear" data-info-title="How you appear" hidden>
         <div id="sendingIdentity" class="sendingIdentity" hidden></div>
         <p id="sheetHow" class="note"></p>
+        <form id="guestNameForm" hidden>
+          <label for="guestName">Your name in this room</label>
+          <input id="guestName" maxlength="48" autocomplete="nickname" required />
+          <button id="saveGuestName" type="submit" class="primary">Save name</button>
+          <p id="guestNameStatus" class="note" role="status"></p>
+        </form>
+        <div id="roomNostrProfile" hidden>
+          <button id="roomProfileShare" type="button" class="tonal" aria-haspopup="dialog">Share Nostr profile</button>
+          <button id="roomProfilePhoto" type="button" class="tonal" aria-haspopup="dialog" hidden>Set profile photo</button>
+          <p id="roomProfileStatus" class="note" role="status"></p>
+        </div>
       </section>
 
       <section class="infoPage" data-info-page="cards" data-info-title="Contact cards" hidden>
@@ -2168,7 +2177,7 @@
     <dialog id="accountNetworkDialog" class="profileSettings" aria-labelledby="accountNetworkTitle">
       <div class="profileSettingsHeader"><h2 id="accountNetworkTitle">Account network</h2><button id="accountNetworkClose" type="button">Close</button></div>
       <p id="accountNetworkStatus" class="note" role="status"></p>
-      <p>Private invitations keeps your signer, local encrypted caches and pending changes. It pauses public account sync, contacts discovery, profile pictures and ordinary relay rooms. Private invitations use the Link/Bothy connections you choose; those carriers and your signer can still observe connection timing and volume.</p>
+      <p>Private invitations keeps your signer, local encrypted caches and pending changes. It pauses public account sync, contacts discovery, public profile lookups and ordinary relay rooms. Private invitations use the Link/Bothy connections you choose; those carriers and your signer can still observe connection timing and volume.</p>
       <p>Enabling Nostr starts account sync and permits ordinary relay rooms, contacts and public profiles according to your saved preferences. Public relays can learn your account and contact keys and connect requests with this visit.</p>
       <button id="choosePrivateInvitations" type="button">Use private invitations</button>
       <button id="enableNostrNetwork" type="button">Enable Nostr</button>
@@ -2179,12 +2188,11 @@
         <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
       </div>
       <button id="profileAccountNetwork" type="button" class="quiet" aria-haspopup="dialog" aria-controls="accountNetworkDialog">Account network</button>
-      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Show other people’s public profile pictures, names and Nostr addresses</label>
-      <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
-      <p class="note">This looks up people in rooms, in your private chat list and in People, and whoever sent you an invitation. It sends their keys to public profile servers, and for people in the room you have open to that room’s relays as well. It loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
+      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Show public profile pictures, names and Nostr addresses in People</label>
+      <p class="note">People and the Nostr inbox can look up public profiles and load pictures from their hosts. Those services can connect the requests with your visit. Turning this off stops those lookups and clears their cache. Rooms use profiles supplied by their participants over the encrypted room connection.</p>
       <p id="lookupHosts" class="note"></p>
       <p class="note">Choosing Search Nostr in People sends the name you enter to relay.ditto.pub.</p>
-      <p class="note">While Nostr account networking is enabled, your signed-in account’s own name and picture are loaded separately from the public profile servers. Turning off other people’s profiles keeps your own account name. Private invitations pauses these account lookups too.</p>
+      <p class="note">While Nostr account networking is enabled, your signed-in account can load its own name and picture separately. Opening a private node room pauses these lookups.</p>
       <label class="profileChoice"><input id="verifyAddresses" type="checkbox" /> Verify Nostr addresses</label>
       <p class="note">Checks a Nostr address with the domain it names, and shows the address only if the domain confirms it for that person’s key. That domain is chosen by the person being looked up: its operator learns your address, timing and rough browser. The check is off until you ask for it; turning it off stops checks in flight. Verified addresses are remembered until profiles are turned off above. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here. A name-only identity made in this browser is never looked up.</p>

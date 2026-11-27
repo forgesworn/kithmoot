@@ -132,11 +132,25 @@ export class ProfileBook {
   #checks = new Set<AbortController>()
   #closed = false
   #enabled = true
+  #paused = false
   #nip05Automatic = false
 
   constructor(opts: ProfileBookOptions) {
     this.#opts = opts
   }
+
+  pause(): void {
+    if (this.#paused) return
+    this.#paused = true
+    for (const check of this.#checks) check.abort()
+    this.#checks.clear()
+    for (const scope of SCOPES) {
+      this.#closeScope(scope)
+      this.#asked[scope].clear()
+    }
+  }
+
+  resume(): void { this.#paused = false }
 
   setEnabled(enabled: boolean): void {
     this.#enabled = enabled
@@ -195,7 +209,7 @@ export class ProfileBook {
   setNip05Automatic(automatic: boolean): void {
     if (automatic === this.#nip05Automatic) return
     this.#nip05Automatic = automatic
-    if (this.#closed || !this.#enabled) return
+    if (this.#closed || !this.#enabled || this.#paused) return
     if (!automatic) {
       for (const check of this.#checks) check.abort()
       this.#checks.clear()
@@ -215,7 +229,7 @@ export class ProfileBook {
    *  `public` scope is still asked of the room's relays when it turns up
    *  in the room. */
   want(pubkeys: string[], scope: LookupScope): void {
-    if (this.#closed || !this.#enabled) return
+    if (this.#closed || !this.#enabled || this.#paused) return
     const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.room.has(p) && (scope === 'room' || !this.#asked.public.has(p)))
     if (fresh.length === 0) return
     for (const pubkey of fresh) this.#asked[scope].add(pubkey)
@@ -244,7 +258,7 @@ export class ProfileBook {
   /** Opening People can queue a whole follow list. Read one small batch at
    * a time, including when new senders arrive while a batch is in flight. */
   #nextPublicBatch(): void {
-    if (this.#publicBusy || !this.#enabled || this.#closed || !this.#publicPending.size) return
+    if (this.#publicBusy || !this.#enabled || this.#closed || this.#paused || !this.#publicPending.size) return
     const batch: string[] = []
     let attempt: number | undefined
     for (const [key, queuedAttempt] of this.#publicPending) {
@@ -276,7 +290,7 @@ export class ProfileBook {
   }
 
   #lookup(pubkeys: string[], scope: LookupScope, attempt: number, publicBatchDone?: () => void): void {
-    if (this.#closed || !this.#enabled) return
+    if (this.#closed || !this.#enabled || this.#paused) return
     const retry = () => {
       const missing = pubkeys.filter(key => !this.#found.has(key))
       const delay = LOOKUP_RETRY_MS[attempt]
@@ -321,7 +335,7 @@ export class ProfileBook {
   }
 
   get(pubkey: string): Profile | undefined {
-    return this.#enabled ? this.#found.get(pubkey)?.profile : undefined
+    return this.#enabled && !this.#paused ? this.#found.get(pubkey)?.profile : undefined
   }
 
   /** An explicit People search found a profile for someone already listed. */
@@ -337,7 +351,7 @@ export class ProfileBook {
   }
 
   async #checkAddress(pubkey: string, profile: Profile, value: unknown): Promise<void> {
-    if (typeof value !== 'string' || this.#opts.verifyAddress?.(pubkey) === false) return
+    if (this.#paused || typeof value !== 'string' || this.#opts.verifyAddress?.(pubkey) === false) return
     const match = /^([a-z0-9_.-]+)@([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/i.exec(value)
     if (!match || value.length > 254) return
     const [, name, domain] = match
@@ -363,7 +377,7 @@ export class ProfileBook {
   /** Never throws: this runs inside a relay subscription handler. */
   #ingest(event: Event, notify = true): boolean {
     try {
-      if (this.#closed || !this.#enabled) return false
+      if (this.#closed || !this.#enabled || this.#paused) return false
       if (event.kind !== 0 || event.created_at > Math.floor(Date.now() / 1000) + 60) return false
       // The pool filters by author, but a relay is not obliged to honour a
       // filter and a signature is the only thing that actually binds this
@@ -413,7 +427,7 @@ function uniqueRelays(urls: string[]): string[] {
   })
 }
 
-function safePicture(value: unknown): string | undefined {
+export function safePicture(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const url = value.trim()
   // A profile is somebody else's JSON. `data:` and `javascript:` have no

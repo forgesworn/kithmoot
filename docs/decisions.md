@@ -283,39 +283,21 @@ Nothing on the wire distinguishes a real Nostr identity from a participant
 key a browser generated a moment ago. The two are the same 32 bytes, and no
 protocol change could tell them apart without a registry.
 
-What *can* be observed is whether a key has published a kind-0 profile. The
-app looks one up for every participant by default and marks a key that has one `nostr`.
-A persistent device preference can disable lookups and remove loaded profiles.
-That is a fact about the key, so the label says what it is and no more.
+Each room participant can provide their own signed kind-0 event through
+encrypted presence. The client checks the signature against the participant's
+key before displaying the name or the `nostr` label. The participant may also
+include a bounded crop of their photo as a separate room assertion. Clients
+display the supplied pixels locally. Quiet rooms use their own room identities
+and omit these profiles.
 
-Lookup starts enabled. It discloses participant keys to the room's readable
-relays in plaintext author queries; pictures also contact their hosts.
-Profile settings explains this beside the persistent switch. Disabling it closes
-subscriptions and clears loaded profiles. This limits this browser's
-disclosure, not what another member can choose to disclose.
-
-**Who is asked about, and on which relays, since 21 October 2026.** A lookup
-tells the relay it is sent to who this browser is interested in, so where it
-goes matters as much as whether it is made. People in the room on
-screen are asked about on that room's relays as well as the public profile
-relays: those relays already carry the room. Everybody else is asked about
-on the public profile relays alone. That is the people in the chats list, in
-People, the senders of invitations, the people in a docked call, and the
-account signed in on this browser. Otherwise the relays of whichever room
-happens to be open would learn who this browser talks to privately
-elsewhere. The cost is that a contact whose profile exists only on some
-room's relay may show no picture in Chats and People.
-
-A browser also never asks about the name-only participant key it made for
-itself, in any room. That key has no public profile, and the question would
-hand the room's relays the participant key that the room's own events keep
-inside the ciphertext. A signed-in account's key is not a key made here: it
-may have a profile, and is asked about on the public relays whether or not
-its signer is connected, which includes the account pass a room is entered
-on while the signer is away. Going home on a docked call closes the room's
-lookup connections, as leaving the room does. A second switch for private
-chats and quiet rooms was considered and not built, and the chats list keeps
-its private-chat pictures.
+Room membership, chat, call and room list views do not ask relays for room
+participants' profiles. A kind-0 query would expose those keys in plaintext.
+Fetching a profile picture or checking a Nostr address could also disclose a
+visit to a host picked by the profile author. Profile settings governs public
+lookups for People and the Nostr inbox. The local signed-in account can bring
+its own cached profile to a room or paste the signed event into **How you
+appear**. Opening a private node room pauses public profile lookups, including
+the local account's.
 
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
 in exactly the way a typed name is. It says "the holder of this key calls

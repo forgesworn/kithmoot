@@ -67,7 +67,9 @@ import { PeopleNostrPanel } from './people-nostr-panel.js'
 import { PeopleProfileCache } from './people-profile-cache.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
 import { PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY, peopleSearchKey, searchNostrPeople } from './people-search.js'
-import { forgetPeoplePictures } from './people-pictures.js'
+import { cancelPeoplePictureLoads, forgetPeoplePictures, setPeoplePicture } from './people-pictures.js'
+import { OwnRoomProfile, roomProfileDisplay } from './own-room-profile.js'
+import { readRoomProfile } from '../../src/room-profile.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
 import { NostrMessagePanel } from './nostr-message-panel.js'
@@ -355,6 +357,7 @@ import {
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { RoomLogoCache } from './room-logo-store.js'
+import { ParticipantPhotos } from './participant-photos.js'
 import { openLogoEditor } from './logo-editor.js'
 import { clearLogo, renderLogo } from './logo-view.js'
 import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
@@ -426,9 +429,9 @@ import {
   loadFacePrivacyMode, storeFacePrivacyMode,
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
-import { ProfileBook, type LookupScope, type Profile } from './profiles.js'
+import { ProfileBook, type Profile } from './profiles.js'
 import { AccountProfileBook } from './account-profile.js'
-import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-lookups.js'
+import { createMadeHere, hostList, lookupHosts } from './profile-lookups.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
@@ -1491,6 +1494,7 @@ setInterval(() => {
   if (roomId && delivery.waiting(roomId)) delivery.refresh(roomId)
 }, 1000)
 const roomLogoCache = new RoomLogoCache(deviceStore)
+const participantPhotos = new ParticipantPhotos(deviceStore)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
@@ -1836,6 +1840,9 @@ function storeJoiningName(name: string): void {
  */
 function joiningName(): string | undefined {
   if (nostrSession) {
+    const room = session?.roomProfile(nostrSession.pubkey) ?? ownRoomProfile.get(nostrSession.pubkey)
+    const sharedName = room && roomProfileDisplay(room).name
+    if (sharedName) return sharedName
     const profile = accountProfiles.get(nostrSession.pubkey)
     if (profile?.name) return profile.name
     const name = sanitiseDisplayName(nostrSession.displayName)
@@ -2021,7 +2028,7 @@ function showConnectedAccount(account: SignetSession): void {
   } else rememberAccount(account)
   startRoomBookmarks(account)
   closedRoomKeepers.refresh()
-  wantProfiles([account.pubkey], 'public')
+  wantProfiles([account.pubkey])
   renderIdentity()
 }
 
@@ -2122,14 +2129,14 @@ function retryStoredBunkerSoon(): void {
 
 /** Reconnect: the stored signer first, then the picker if it still does not
  *  answer, so a person can always sign in some other way. */
-async function reconnectNostr(): Promise<void> {
+async function reconnectNostr(keepRoomArrival = false): Promise<void> {
   if (storedBunkerSession() && accountDisconnected()) {
     setStatus('Reconnecting to your signer…', 'progress')
     if (await retryStoredBunker()) { setStatus('Reconnected to your signer.', 'done'); return }
     if (!accountDisconnected()) { setStatus(''); return }
     setStatus('Your signer did not answer. Check it is on and online, or sign in another way.')
   }
-  await signInWithNostr()
+  await signInWithNostr(keepRoomArrival)
 }
 
 interface PreparedPersona {
@@ -2161,7 +2168,7 @@ async function restoreSavedPersona(pubkey: string): Promise<PreparedPersona | un
   }
 }
 
-async function connectPersona(label: string, signetOnly = true): Promise<void> {
+async function connectPersona(label: string, signetOnly = true, keepRoomArrival = false): Promise<void> {
   await changePersona(async () => {
     await personaStore().selection()
     const storage = new PersonaSessionStorage()
@@ -2179,10 +2186,10 @@ async function connectPersona(label: string, signetOnly = true): Promise<void> {
       await account.signer.close().catch(() => {})
       throw error
     }
-  })
+  }, keepRoomArrival)
 }
 
-async function changePersona(prepare: () => Promise<PreparedPersona | undefined>): Promise<void> {
+async function changePersona(prepare: () => Promise<PreparedPersona | undefined>, keepRoomArrival = false): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (loginBusy) return
     if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) {
@@ -2214,7 +2221,7 @@ async function changePersona(prepare: () => Promise<PreparedPersona | undefined>
       const legacy = !personaSelection && !personaStorageError && legacyKey
         ? personaConnection(localStorage, legacyKey, shownAs(legacyKey).name ?? '', location.origin) : undefined
       const hadRoom = !!session || !!dockedCall
-      reopenDoor = !hadRoom && !$('identity').hidden && location.hash.length > 1
+      reopenDoor = !keepRoomArrival && !hadRoom && !$('identity').hidden && location.hash.length > 1
       if (hadRoom || reopenDoor) {
         switchingRoom = closingRoom = true
         if (session) captureDraft()
@@ -2309,8 +2316,8 @@ async function reopenPersonaDoor(): Promise<void> {
   }
 }
 
-async function signInWithNostr(): Promise<void> {
-  if (personaSelection || personaStorageError) return connectPersona('', false)
+async function signInWithNostr(keepRoomArrival = false): Promise<void> {
+  if (personaSelection || personaStorageError) return connectPersona('', false, keepRoomArrival)
   return withLegacyMessagesClosed(async () => {
     closeContextPanel()
     if (loginBusy) return
@@ -4296,21 +4303,10 @@ let myDeviceId = ''
 //      normal way to use this - it is not a lesser one.
 // ---------------------------------------------------------------------------
 
-/**
- * Where a kind-0 profile is looked for, beyond the room's own relays.
- *
- * A room on somebody's own box, or a keeper's, holds the room's events and
- * nothing else; a member's profile lives wherever they published it, which
- * for almost everybody is the public relays. Asked only on the room's
- * relays, a person who signed in with a real Nostr account still showed as
- * a short code beside their name. purplepag.es exists to aggregate exactly
- * this kind; relay.primal.net is the one big general relay still listed.
- * relay.damus.io was removed on 1 November 2026: see src/public-relays.ts.
- * Only ever read from, and
- * only while the "show public profiles" switch is on: that switch is what
- * decides whether participant keys leave the room's relays at all.
- */
+/** The read-only kind-0 directory used by People and the local account. */
 const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.primal.net']
+
+const ownRoomProfile = new OwnRoomProfile(deviceStore, nowSeconds)
 
 // Signing in selects whose own metadata to read. The directory preference
 // controls other people's profiles, and cannot erase the account's own name.
@@ -4318,6 +4314,20 @@ const accountProfiles = new AccountProfileBook({
   relays: () => [],
   publicRelays: () => PROFILE_RELAYS,
   transport: urls => relayConnections.pool('account-profile', urls),
+  publicCache: {
+    read: authors => {
+      const account = nostrSession?.pubkey ?? expectedAccount
+      const profile = account && authors.includes(account) ? ownRoomProfile.get(account) : undefined
+      return profile ? [{ event: profile.event, fresh: false }] : []
+    },
+    keep: event => {
+      const account = nostrSession?.pubkey ?? expectedAccount
+      if (account !== event.pubkey) return
+      const previous = ownRoomProfile.get(account)
+      if (previous?.event.id === event.id) return
+      try { ownRoomProfile.save(account, { event }) } catch { /* The account can still use its live profile. */ }
+    },
+  },
   onChange: () => {
     renderIdentity()
     if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
@@ -4329,16 +4339,9 @@ const accountProfiles = new AccountProfileBook({
 const peopleProfiles = new PeopleProfileCache(deviceStore)
 window.addEventListener('pagehide', () => peopleProfiles.flush())
 const profiles = new ProfileBook({
-  // For the people in the room on screen: its relays as well as the public
-  // ones. `wantProfiles` asks here only while a room is open.
-  relays: () => [...new Set([...relays, ...PROFILE_RELAYS])],
-  // For everybody else, and for this browser's own account. See `wantProfiles`.
+  relays: () => [],
   publicRelays: () => PROFILE_RELAYS,
-  // Their own scopes. Under the room's scope this pool's wider list counted
-  // towards the room's relay health, and the door waited on public relays
-  // the room never chose before it would show Join. And one each, so that
-  // what is asked for the room can be closed with the room.
-  transport: (urls, scope) => relayConnections.pool(scope === 'room' ? 'profiles' : 'public-profiles', urls),
+  transport: urls => relayConnections.pool('public-profiles', urls),
   verifyAddress: peer => !peopleNostrPeers.has(peer) || mayMessageContact(peer),
   publicCache: {
     read: authors => {
@@ -4378,35 +4381,27 @@ function isOwnAccount(pubkey: string): boolean {
   return pubkey === nostrSession?.pubkey || pubkey === expectedAccount
 }
 
-/**
- * Ask for these people's public profiles - the only way anything here does,
- * so that the two rules in `profile-lookups.ts` cannot be skipped.
- *
- * `room` is for the people in the room on screen (call tiles, the chat log),
- * and goes to that room's relays as well as the public ones. `public` is for
- * everybody else (the chats list, People, who sent an invitation) and goes
- * to the public profile relays alone, so a room's relays do not learn who
- * its members talk to elsewhere.
- *
- * The signed-in account is always asked about as `public`, whatever the
- * caller says. It is who this browser is, and a room's relays do not
- * otherwise learn it from here: the roster is encrypted to the room, the
- * device credential is never published, and the account's bookmarks go to
- * the default relays. A room-scope question would hand it to them from the
- * one browser they are connected to. The account's profile is published to
- * public relays, which is where it is found. The same holds for the account
- * pass a room is entered on while the signer is away: `accountPassForRoom`
- * only returns a pass whose key is `expectedAccount`, so that key is the
- * real account, not one made here, and is asked about like the account.
- */
-function wantProfiles(pubkeys: string[], scope: LookupScope): void {
-  if (nodeRoom) return
+let lastProfileLocation: string | undefined
+let linkIsPrivateNode = false
+function privateProfileRoute(): boolean {
+  if (nodeRoom) return true
+  if (location.href !== lastProfileLocation) {
+    lastProfileLocation = location.href
+    linkIsPrivateNode = !!parseNodeRoomLink(location.href, nowSeconds())
+  }
+  return linkIsPrivateNode
+}
+
+/** People and the signed-in account may use the public directory. Room
+ * rosters and messages receive profiles from their authors instead. */
+function wantProfiles(pubkeys: string[]): void {
+  if (privateProfileRoute()) return
   const own = nostrSession?.pubkey ?? expectedAccount
   accountProfiles.select(own, accountNetwork.nostr)
   if (!accountNetwork.nostr) return
-  const routed = routeLookups(pubkeys.filter(pubkey => pubkey !== own), scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
-  if (routed.room.length) profiles.want(routed.room, 'room')
-  if (routed.public.length) profiles.want(routed.public, 'public')
+  profiles.resume()
+  const peers = pubkeys.filter(pubkey => pubkey !== own && !madeHere(pubkey))
+  if (peers.length) profiles.want(peers, 'public')
 }
 
 /** Name, in the profile dialog, the servers every lookup asks. Read from the
@@ -4580,8 +4575,14 @@ interface Shown {
 }
 
 /** Resolve everything a tile or a chat line needs to show one person. */
-function shownAs(pubkey: string, asserted?: string): Shown {
-  const profile: Profile | undefined = !nodeRoom && accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
+function shownAs(pubkey: string, asserted?: string, roomSession = session ?? dockedCall?.session): Shown {
+  const inRoom = !!roomSession || privateProfileRoute()
+  const shared = roomSession?.roomProfile(pubkey) ??
+    (inRoom && isOwnAccount(pubkey) && !isQuietPolicy(roomPolicy) ? ownRoomProfile.get(pubkey) : undefined)
+  const roomProfile = shared && roomProfileDisplay(shared)
+  const profile: Profile | undefined = !inRoom && accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
+  const photo = nodeRoom && nodeRoom.node.room === roomSession?.roomId && !isQuietPolicy(roomPolicy)
+    ? participantPhotos.get(nodeRoom.participant, pubkey) : undefined
   // Only a published identity is asked about, so a per-device key is never
   // even looked up: there is nothing to attribute a payment to. Cheap on
   // every render by design - it does nothing for a total that is still
@@ -4600,8 +4601,8 @@ function shownAs(pubkey: string, asserted?: string): Shown {
     selfName: owner?.participants().find(view => view.participant === mediaMe())?.name,
   }) : undefined
   const name = resolveShownName({
-    profileName: profile?.name,
-    rememberedName: lastKnownProfileNames.get(pubkey),
+    profileName: roomProfile?.name ?? profile?.name,
+    rememberedName: !inRoom || isOwnAccount(pubkey) ? lastKnownProfileNames.get(pubkey) : undefined,
     assertedName: asserted,
     localName: contactName ?? (peerName !== 'Private chat' ? peerName : undefined),
     profilesEnabled: isOwnAccount(pubkey) || accountNetwork.nostr && profilesEnabled,
@@ -4612,9 +4613,9 @@ function shownAs(pubkey: string, asserted?: string): Shown {
     name,
     short: shortNpub(pubkey),
     npub: npubOf(pubkey),
-    picture: profile?.picture,
+    picture: photo?.src ?? roomProfile?.picture ?? profile?.picture,
     nip05: profile?.nip05,
-    nostr: profile !== undefined,
+    nostr: !!shared || profile !== undefined,
     sats: donations.sats(pubkey),
   }
 }
@@ -4637,10 +4638,11 @@ function pictureOf(shown: Shown, withFallback = false, nameless = ''): HTMLEleme
   fallback.setAttribute('aria-hidden', 'true')
   // A person with no name is drawn as "Somebody", so that is the initial too, never the key's.
   fallback.textContent = [...(shown.name?.trim() || nameless || shown.short)][0]?.toLocaleUpperCase() ?? '?'
-  if (!accountNetwork.nostr || shown.picture === undefined) return withFallback ? fallback : undefined
+  if (shown.picture === undefined) return withFallback ? fallback : undefined
   const avatar = document.createElement('img')
   avatar.className = 'avatar'
-  avatar.src = shown.picture
+  if (!session && !privateProfileRoute() && isOwnAccount(shown.pubkey) && /^https?:/.test(shown.picture)) setPeoplePicture(avatar, shown.picture)
+  else avatar.src = shown.picture
   avatar.alt = ''
   avatar.loading = 'lazy'
   avatar.referrerPolicy = 'no-referrer'
@@ -5123,7 +5125,7 @@ function renderIdentity(): void {
   accountProfile.replaceChildren()
   accountProfile.hidden = !nostrSession
   if (nostrSession) {
-    wantProfiles([nostrSession.pubkey], 'public')
+    wantProfiles([nostrSession.pubkey])
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   renderHistoryRecovery()
@@ -5134,8 +5136,15 @@ function renderIdentity(): void {
   const sending = $('sendingIdentity')
   sending.replaceChildren()
   sending.hidden = !session
+  const guest = session && isGuestSession(session)
+  $('guestNameForm').hidden = !guest
+  const guestField = $('guestName') as HTMLInputElement
+  if (guest && document.activeElement !== guestField) guestField.value = typedJoiningName() || joiningName() || ''
+  const share = !!session && nostrSession?.pubkey === session.participant && !isQuietPolicy(roomPolicy)
+  $('roomNostrProfile').hidden = !share
+  $('roomProfilePhoto').hidden = !share || !session?.roomProfile(session.participant)
   if (session) {
-    const visitor = !nostrSession && !loadCredential() && meParticipant !== expectedAccount
+    const visitor = guest
     const shown = shownAs(meParticipant, joiningName())
     const label = visitor ? 'Name only' : 'Nostr'
     const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
@@ -5165,11 +5174,85 @@ function renderIdentity(): void {
   // I in here" is a question somebody actually asks. The door says it in
   // the one button it offers.
   renderRooms()
-  const participant = session ? meParticipant : loadCredential()?.pubkey ?? currentParticipant()
-  if (participant) wantProfiles([participant], 'public')
   renderHowIn()
   renderNudgeChoice()
 }
+
+function isGuestSession(target: RoomSession): boolean {
+  return !target.closed && !nostrSession && !loadCredential() && target.participant !== expectedAccount
+}
+
+$('guestNameForm').addEventListener('submit', async event => {
+  event.preventDefault()
+  const target = session
+  const save = $('saveGuestName') as HTMLButtonElement
+  if (!target || !isGuestSession(target) || save.disabled) return
+  const input = $('guestName') as HTMLInputElement
+  const status = $('guestNameStatus')
+  const name = sanitiseDisplayName(input.value)
+  if (!name) { status.textContent = 'Enter a name.'; input.focus(); return }
+  save.disabled = true
+  status.textContent = ''
+  try {
+    storeJoiningName(name)
+    await target.setDisplayName(name)
+    if (session === target) { renderIdentity(); status.textContent = 'Name updated in this room.' }
+  } catch (error) {
+    if (session === target) status.textContent = describeError(error)
+  } finally { save.disabled = false }
+})
+
+function roomProfileAction() {
+  const target = session, account = nostrSession
+  if (!target || !account || target.participant !== account.pubkey || isQuietPolicy(roomPolicy)) return
+  return { target, account: account.pubkey, current: () => session === target && !target.closed && nostrSession === account }
+}
+
+$('roomProfileShare').addEventListener('click', async () => {
+  const action = roomProfileAction()
+  if (!action) return
+  const { target, account, current } = action
+  const status = $('roomProfileStatus')
+  status.textContent = ''
+  const existing = target.roomProfile(account) ?? ownRoomProfile.get(account)
+  const label = document.createElement('label')
+  label.textContent = 'Signed kind 0 event (JSON)'
+  const input = document.createElement('textarea')
+  input.rows = 5; input.maxLength = 8192; input.spellcheck = false
+  if (existing) input.value = JSON.stringify(existing.event)
+  label.append(input)
+  try {
+    if (!await confirmAction({ title: 'Share your Nostr profile?', message: 'Members of this room will receive this signed profile. You can paste your own signed kind 0 here.',
+      confirmLabel: 'Share profile', content: label, isCurrent: current })) return
+    let event: unknown
+    try { event = JSON.parse(input.value) } catch { /* Handled by the validator. */ }
+    const profile = readRoomProfile({ event }, account, nowSeconds())
+    if (!profile) throw new Error('Paste a signed kind 0 from this Nostr account.')
+    if (ownRoomProfile.get(account)?.event.id !== profile.event.id) ownRoomProfile.save(account, profile)
+    const ready = await ownRoomProfile.forRoom(account)
+    if (!current() || !ready) return
+    await target.setRoomProfile(ready)
+    if (current()) { renderIdentity(); status.textContent = 'Profile shared with this room.' }
+  } catch (error) {
+    if (current()) status.textContent = describeError(error)
+  }
+})
+
+$('roomProfilePhoto').addEventListener('click', () => {
+  const action = roomProfileAction()
+  if (!action) return
+  const { target, account, current } = action
+  const profile = target.roomProfile(account)
+  if (!profile) return
+  openLogoEditor({ name: roomProfileDisplay(profile).name ?? 'your profile', image: profile.photo, sharedPhoto: true,
+    save: async photo => {
+      if (!current()) throw new Error('This room has changed.')
+      const updated = { event: profile.event, ...(photo ? { photo } : {}) }
+      ownRoomProfile.save(account, updated, photo === null)
+      await target.setRoomProfile(updated)
+      if (current()) renderIdentity()
+    } })
+})
 
 function personaName(pubkey: string): string {
   const shown = shownAs(pubkey)
@@ -5338,11 +5421,12 @@ function doorAvatar(pubkey: string): HTMLElement {
   el.className = 'joinAvatar'
   el.setAttribute('aria-hidden', 'true')
   el.dataset.initial = [...(shown.name?.trim() ?? '')][0]?.toLocaleUpperCase() ?? ''
-  if (accountNetwork.nostr && shown.picture) {
+  if (shown.picture) {
     const image = document.createElement('img')
     image.alt = ''
     image.referrerPolicy = 'no-referrer'
-    image.src = shown.picture
+    if (!session && !privateProfileRoute() && /^https?:/.test(shown.picture)) setPeoplePicture(image, shown.picture)
+    else image.src = shown.picture
     image.addEventListener('error', () => image.remove(), { once: true })
     el.append(image)
   }
@@ -5402,7 +5486,7 @@ function renderDoorMode(): void {
   }
   join.classList.add('primary')
   join.classList.remove('quiet')
-  if (account) wantProfiles([account], 'public')
+  if (account) wantProfiles([account])
   if (!navigator.onLine && !joining && !session && !$('status').textContent) setStatus(DOOR_OFFLINE, 'progress')
   focusDoor(mode)
 }
@@ -5927,15 +6011,46 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
   const node = parseNodeRoomLink(location.href, nowSeconds())
   if (nodeOpening && (node?.event.id !== nodeOpening.record || !nodeOpening.allowed())) throw Error('The private invitation is no longer available.')
   if (node) {
+    pauseProfileLookups()
     if (identityRestoring) await identityReady
+    const generation = roomGeneration, hash = location.hash
+    const arrivalCurrent = () => roomGeneration === generation && location.hash === hash && (nodeOpening?.allowed() ?? true)
+    const heldBy = nostrSession?.pubkey ?? expectedAccount ?? currentParticipant()
+    let held = heldBy && loadNodeRoom(deviceStore, heldBy, node.room)
+    const host = new URL(node.origin).hostname
+    let guestConfirmed = false
+    if (!held && !expectedAccount && !nostrSession) {
+      const label = document.createElement('label')
+      label.textContent = 'Your name'
+      const name = document.createElement('input')
+      name.type = 'text'; name.setAttribute('autocomplete', 'nickname'); name.maxLength = 48
+      name.value = typedJoiningName(); name.placeholder = 'Guest'
+      label.append(name)
+      name.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' || event.isComposing) return
+        event.preventDefault()
+        name.closest('dialog')?.querySelector<HTMLButtonElement>('#actionConfirm')?.click()
+      })
+      while (arrivalCurrent() && !nostrSession) {
+        const choice = await chooseAction({ title: 'Ask to join this room?', message: `This room is hosted on ${host}. The room host can approve your request. The node sees your IP address.`,
+          confirmLabel: 'Ask to join', alternativeLabel: 'Sign in with Nostr', content: label, isCurrent: arrivalCurrent })
+        if (choice === 'cancel' || !arrivalCurrent()) throw Error('The request was cancelled.')
+        if (choice === 'confirm') {
+          storeJoiningName(name.value)
+          guestConfirmed = true
+          break
+        }
+        await signInWithNostr(true)
+      }
+    }
+    if (!arrivalCurrent()) return false
     // A failed signer restore must not turn a returning account into a
     // visitor before startSession gets its chance to require reconnection.
     // Retained node custody can still be looked up as that same account.
     const openingIdentity = () => nostrSession?.signer ?? (expectedAccount ? waitingAccountIdentity(expectedAccount) : currentIdentity())
-    const participant = openingIdentity(), generation = roomGeneration
-    const current = () => roomGeneration === generation && (nostrSession?.pubkey ?? expectedAccount ?? currentParticipant()) === participant.pubkey
-      && (nodeOpening?.allowed() ?? true)
-    let held = loadNodeRoom(deviceStore, participant.pubkey, node.room)
+    const participant = openingIdentity()
+    const current = () => arrivalCurrent() && (nostrSession?.pubkey ?? expectedAccount ?? currentParticipant()) === participant.pubkey
+    held = loadNodeRoom(deviceStore, participant.pubkey, node.room)
     if (held && held.node.event.id !== node.event.id) throw Error('This room link names a different node record. Ask the keeper for the current link.')
     if (held?.phase === 'creating') {
       const pair = loadPairedNode(deviceStore, participant.pubkey)
@@ -5944,7 +6059,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
     }
     if (!held) {
       if (expectedAccount && !nostrSession) {
-        await reconnectNostr()
+        await reconnectNostr(true)
         if (!current() || accountDisconnected()) throw Error('Reconnect the same Nostr account before asking to join this room.')
       }
       // The account already keeps this room: another of its devices made it,
@@ -5958,8 +6073,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
       // the account's other devices to be online.
       if (ownRoom) held = await admitOwnNodeDevice(node, participant, current)
       if (!held) {
-        const host = new URL(node.origin).hostname
-        if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${host}. The room host can approve your request. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
+        if (!ownRoom && !guestConfirmed && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${host}. The room host can approve your request. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
         const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
         $('nodeWaitingHost').textContent = `Hosted on ${host}.`
         const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
@@ -6200,7 +6314,6 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
     invitationDelegation = []
   }
 
-  profiles.restartRoom()
   iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
   if (parsedLink.pairingCode) {
@@ -6588,6 +6701,7 @@ function restoreExistingNodeRoom(): void {
 
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
+  pauseProfileLookups()
   nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = held.node.existing?.destruct ?? true
   roomStartsAt = held.startsAt; roomName = nodeRoomName(held)
   if (held.node.existing) roomPolicy = held.node.existing.policy
@@ -6596,6 +6710,12 @@ function adoptNodeRoom(held: BrowserNodeRoom): void {
   startedHere = !!held.authoritySk; roomRelayScope = `room:${held.node.room}`
   relays = [held.node.relay]; roomRelayConfig = [{ url: held.node.relay, read: true, write: true }]; roomRelayHints = []
   iceUrls = []; roomUsesBothy = false; roomBothyBoard = false
+}
+
+function pauseProfileLookups(): void {
+  accountProfiles.pause()
+  profiles.pause()
+  cancelPeoplePictureLoads()
 }
 
 async function startNewRoom(): Promise<void> {
@@ -6679,7 +6799,6 @@ async function startNewRoom(): Promise<void> {
     useRoomRelays()
     iceUrls = parseIceInput()
     roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-    profiles.restartRoom()
     serveCurrentInvitation()
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     rememberCurrentRoom()
@@ -9427,13 +9546,6 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   const agentsRow = $('agentsRow')
   agentsRow.innerHTML = ''
 
-  // Ask about every key in the room, so anyone with a published Nostr
-  // profile is shown as having one. Cheap to repeat - the book only looks
-  // up a key it has not seen. Beside a docked call these are the call's
-  // people, not the room on screen's, and a different room's relays must
-  // not hear about them.
-  wantProfiles(views.map((v) => v.participant), dockedCall ? 'public' : 'room')
-
   for (const view of views) {
     // An agent with nothing on screen - a keeper, a host, one that only
     // reads and writes - is a name in a row, not an empty tile taking a
@@ -10956,14 +11068,29 @@ let conversationRead = new Map<string, Set<string>>()
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
 
-/** A name for one person, for a status line: "Somebody" when they have none,
- *  and a short key only when two people in view claim the same name. */
 /** The names people had in each room while they were in it. */
 const namesInRoom = new WeakMap<RoomSession, Map<string, string>>()
-function rememberNamesInRoom(s: RoomSession, views: readonly ParticipantView[]): void {
+const profilesInRoom = new WeakMap<RoomSession, Map<string, string>>()
+function rememberPeopleInRoom(s: RoomSession, views: readonly ParticipantView[]): boolean {
   let names = namesInRoom.get(s)
   if (!names) namesInRoom.set(s, names = new Map())
-  for (const view of views) if (view.name) names.set(view.participant, view.name)
+  let profiles = profilesInRoom.get(s)
+  if (!profiles) profilesInRoom.set(s, profiles = new Map())
+  let changed = false
+  for (const { participant, name } of views) {
+    if (name && name !== names.get(participant)) {
+      changed = true
+      names.set(participant, name)
+    }
+    const profile = s.roomProfile(participant)
+    const stamp = profile && `${profile.event.id}:${profile.photo?.sha256 ?? ''}`
+    if (stamp !== profiles.get(participant)) {
+      changed = true
+      if (stamp) profiles.set(participant, stamp)
+      else profiles.delete(participant)
+    }
+  }
+  return changed
 }
 
 /** The name somebody goes by in the room on screen, present or gone: a
@@ -10984,6 +11111,7 @@ function nameInRoom(pubkey: string): string | undefined {
   return undefined
 }
 
+/** A name for a status line, with a short key when the name is ambiguous. */
 function personLabel(pubkey: string): string {
   const shown = shownAs(pubkey, nameInRoom(pubkey))
   // A short key only when two people in view claim the same name.
@@ -12196,7 +12324,7 @@ function renderMeeting(): void {
     }
     const toggle = document.createElement('button')
     toggle.type = 'button'
-    toggle.textContent = isSpeaker ? 'Stop speaker' : 'Make speaker'
+    toggle.textContent = isSpeaker ? 'Move to audience' : 'Make speaker'
     toggle.setAttribute('aria-pressed', String(isSpeaker))
     const label = personLabel(view.participant)
     toggle.addEventListener('click', () => {
@@ -12434,12 +12562,19 @@ function renderHost(): void {
       list.append(row)
       continue
     }
+    const moderated = isRoomAuthority() && !!roomMeeting()?.on
     const mute = document.createElement('button')
     mute.type = 'button'
-    mute.hidden = !!nodeRoom
-    mute.textContent = 'Mute'
-    mute.title = 'Ask their app to switch their camera and microphone off. It is a request, and nothing here can make them.'
-    mute.addEventListener('click', () => sendHostControl({ op: 'mute', participant: view.participant }, `Asked ${label} to mute.`))
+    mute.hidden = moderated ? !roomMeeting()?.speakers.includes(view.participant) : !!nodeRoom
+    mute.textContent = moderated ? 'Mute and move to audience' : 'Request mute'
+    mute.title = moderated ? 'Keep their microphone, camera and screen share off until they are a speaker again.' :
+      'Ask their app to turn off its microphone, camera and screen share.'
+    mute.addEventListener('click', () => {
+      if (!moderated) { sendHostControl({ op: 'mute', participant: view.participant }, `Asked ${label} to mute.`); return }
+      setSpeaker(view.participant, false)
+        .then(() => setStatus(`${label} moved to the audience.`))
+        .catch(error => setStatus(describeError(error)))
+    })
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'danger'
@@ -14395,10 +14530,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
   let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
-  wantProfiles(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])), 'room')
 
   const namesOfMine = myNames()
   const roster = session?.participants() ?? []
+  const currentNames = session ? namesInRoom.get(session) : undefined
   // Cached by the exact set of names each pattern covers, because most
   // messages in a log share the same handful of participants: the whole
   // point of the comment this replaced still holds, just per message
@@ -14546,7 +14681,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     {
       const sender = document.createElement('div')
       sender.className = 'sender'
-      const shown = shownAs(original.participant, original.name)
+      const shown = shownAs(original.participant, currentNames?.get(original.participant) ?? original.name)
       const person = document.createElement('button'); person.type = 'button'; person.className = 'messagePerson'
       person.setAttribute('aria-label', `View details for ${shown.name ?? shown.short}`)
       person.setAttribute('aria-haspopup', 'dialog'); person.append(identityRun(shown, mine, true, false, true))
@@ -14554,12 +14689,29 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // for a screen reader and is not a tab stop nobody can see.
       if (mine) person.tabIndex = -1
       person.onclick = () => {
-        const current = session?.participants().find(view => view.participant === original.participant)
+        const target = session
+        const current = target?.participants().find(view => view.participant === original.participant)
         const me = meParticipant
         const permitted = current && me && current.participant !== me && !dmPeer(roomPolicy, me) &&
           (!current.agent || current.owner?.principal === me || admins.has(me))
-        participantCard.open(shownAs(original.participant, original.name), person,
-          permitted ? () => { void startDirectMessage(original.participant, shown.name, false) } : undefined)
+        const peer = original.participant
+        const viewer = target?.participant
+        const editPhoto = target && nodeRoom?.node.room === target.roomId && viewer && peer !== viewer && !isQuietPolicy(roomPolicy)
+        const generation = roomGeneration
+        participantCard.open(shown, person,
+          permitted ? () => { void startDirectMessage(peer, shown.name, false) } : undefined,
+          editPhoto ? {
+            image: participantPhotos.get(viewer, peer)?.image,
+            save: image => {
+              if (generation !== roomGeneration || session !== target || conferenceEnded(target.endsAt, nowSeconds())) {
+                throw new Error('This room has changed. Open participant details again.')
+              }
+              participantPhotos.save(viewer, peer, image)
+              render(target.participants(), viewer)
+              repaintActiveChat()
+              renderRooms()
+            },
+          } : undefined)
       }
       sender.append(person)
       // The tag, in the same place and the same colour as on the roster, so
@@ -16536,6 +16688,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
     const name = joiningName()
+    const profileAccount = nostrSession
+    const roomProfile = profileAccount?.pubkey === participant && !isQuietPolicy(roomPolicy)
+      ? await ownRoomProfile.forRoom(participant) : undefined
+    if (generation !== roomGeneration || nostrSession !== profileAccount) return
     // Held here as well as inside the session, because a file dropped into
     // the chat announces itself with a kind-1063 event on the room's own
     // relays, through the sockets the room already has open - in an
@@ -16599,6 +16755,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
+          roomProfile,
           // Node rooms use fixed media slots and pair recovery. An explicit
           // off switch still wins; older peers negotiate their supported mode.
           callProfile: roomCallProfile,
@@ -16666,6 +16823,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
+          roomProfile,
           // Node rooms use fixed media slots and pair recovery. An explicit
           // off switch still wins; older peers negotiate their supported mode.
           callProfile: roomCallProfile,
@@ -16755,7 +16913,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
         }
       }
-      rememberNamesInRoom(s, views)
+      if (rememberPeopleInRoom(s, views) && session === s) {
+        coalesceChatPaint('room-people', () => { if (session === s) repaintActiveChat() })
+      }
       // A heartbeat that changes nothing anybody can see waits for the
       // trailing paint; see `throttleRosterPaint`.
       throttleRosterPaint(s, views, () => {
@@ -17618,7 +17778,6 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = navigationRooms()
-  wantProfiles(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }), 'public')
   const queryField = $('homeRoomQuery') as HTMLInputElement
   const query = queryField.value.trim().toLocaleLowerCase()
   const projects = projectChoices(rooms)
@@ -17900,7 +18059,6 @@ function roomRowState(room: KnownRoom): RoomRowState {
 
   const present = here ? [] : watched!.watch.present()
   const presence = present.length > 0 ? presenceText(present) : undefined
-  if (present.length) wantProfiles(present.map((p) => p.participant), 'public')
 
   const description = [unreadSpoken, mention ? 'Mentions you' : '', preview, time, presence?.spoken].filter(Boolean).map(part => part!.replace(/([^.])\.$/, '$1')).join('. ')
   return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, mention, description }
@@ -17938,14 +18096,18 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   if (state.unreadCount > 0) row.classList.add('hasUnread')
   const avatar = document.createElement('span')
   avatar.className = 'roomAvatar'
-  const peer = dmPeerOf(room)
+  const viewer = meParticipant || currentParticipant()
+  const peer = dmPeerOf(room, viewer)
+  const quiet = isQuietRoom(room)
   // A private chat wears the person's avatar: their initial and the colour
   // People gives them.
   avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(peer ?? room.roomId))
   avatar.setAttribute('aria-hidden', 'true')
   avatar.textContent = avatarInitial(peer ? dmPersonName(room, peer) : label)
-  if (!peer && !isQuietRoom(room)) renderLogo(avatar, displayedRoomLogo(room.roomId, project), label)
-  const picture = peer ? profiles.get(peer)?.picture : undefined
+  if (!peer && !quiet) renderLogo(avatar, displayedRoomLogo(room.roomId, project), label)
+  const localPhoto = peer && viewer && !quiet ? participantPhotos.get(viewer, peer)?.src : undefined
+  const shared = peer && session?.roomId === room.roomId ? session.roomProfile(peer) : undefined
+  const picture = localPhoto ?? (shared && roomProfileDisplay(shared).picture)
   if (picture) {
     const image = document.createElement('img')
     image.alt = ''
@@ -18719,6 +18881,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean; preserv
 function resetRoomState(): void {
   nodeRoom = undefined
   openingNodeRuntime?.close(); openingNodeRuntime = undefined
+  $('guestNameStatus').textContent = ''
+  $('roomProfileStatus').textContent = ''
   $('arrivalRoomBrand').hidden = true; clearLogo($('arrivalLogo')); $('arrivalRoomBrandName').textContent = ''
   roomProjectContext = undefined
   admissionController?.abort()
@@ -18783,10 +18947,6 @@ function resetRoomState(): void {
   roomRelayConfig = relayConnections.configuration('default')
   roomRelayHints = []
   iceUrls = DEFAULT_ICE_URLS
-  // The lookups made for this room end with it. Going home on a docked call
-  // never reaches `roomFromLocation`, which is where the next room restarts
-  // them, so without this the old room's relays stayed in the pool.
-  profiles.restartRoom()
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
     myDeviceId = ''
@@ -20093,7 +20253,7 @@ function invitationModel(): WaitingInvitation[] {
     const known = !!contact || !!card || follows.follows(peer)
     // Somebody unknown is never looked up: asking public relays about them
     // would tell those relays who wrote to this account.
-    if (known) wantProfiles([peer], 'public')
+    if (known) wantProfiles([peer])
     const profile = known ? profiles.get(peer) : undefined
     return { id: invitation.id, pubkey: peer, sentAt: invitation.sentAt, ...inviterIdentity({
       ...(contact?.name ? { signetName: contact.name } : {}), ...(card?.name ? { cardName: contactLabel(card) } : {}), known,
@@ -20387,7 +20547,7 @@ function linkSignetContacts(opener: HTMLElement): void {
     sentInvitations: peer => invitationsSentTo(peer).map(({ room, at, joined }) => ({
       roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),
     })),
-    want: pubkeys => wantProfiles(pubkeys, 'public'),
+    want: wantProfiles,
     canSearchNostr: canSearchNostrPeople,
     searchNostr: async (query, signal) => {
       const account = nostrSession, network = accountNetwork.current()
@@ -21162,7 +21322,6 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
 function roomRelaysApplied(entries: RelayConfig[]): void {
   roomRelayConfig = entries
   relays = entries.map(relay => relay.url)
-  profiles.restartRoom()
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
   renderIdentity()
   if (currentRoomId()) {
@@ -21437,7 +21596,7 @@ function renderPeopleNostr(): void {
   peopleNostrPeers = new Set(threads.filter(thread => thread.messages.some(message => message.author !== account)).map(thread => thread.peer))
   if (peopleNostrPeers.size) {
     follows.ensure()
-    wantProfiles([...peopleNostrPeers], 'public')
+    wantProfiles([...peopleNostrPeers])
   }
   peopleNostrPanel.reconcile()
 }
@@ -26857,7 +27016,7 @@ Promise.all([roomArrival, identityReady]).then(async ([found]) => {
 // The pubkey we would join as, so the identity line is right before the
 // first room is ever opened.
 const known = currentParticipant()
-if (known) wantProfiles([known], 'public')
+if (known) wantProfiles([known])
 
 // Restore only explicit discovery preferences after all screen state exists.
 boxDiscovery = new BoxDiscovery({

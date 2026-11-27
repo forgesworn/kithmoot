@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { bytesToHex } from '@noble/hashes/utils'
-import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-lookups.js'
+import { createMadeHere, hostList, lookupHosts } from './profile-lookups.js'
 
 const keyPair = () => { const secret = generateSecretKey(); return { hex: bytesToHex(secret), pubkey: getPublicKey(secret) } }
 
@@ -46,43 +46,6 @@ describe('createMadeHere', () => {
   })
 })
 
-describe('routeLookups', () => {
-  const mine = keyPair(), account = keyPair(), guest = keyPair(), friend = keyPair()
-  const rules = { madeHere: createMadeHere(() => mine.hex), isAccount: (pubkey: string) => pubkey === account.pubkey, roomOpen: true }
-
-  it('never asks about a key made on this browser, in either scope', () => {
-    expect(routeLookups([mine.pubkey], 'room', rules)).toEqual({ room: [], public: [] })
-    expect(routeLookups([mine.pubkey, guest.pubkey], 'public', rules)).toEqual({ room: [], public: [guest.pubkey] })
-  })
-
-  it('sends room lookups to the room scope and everything else to the public one', () => {
-    expect(routeLookups([guest.pubkey, friend.pubkey], 'room', rules)).toEqual({ room: [guest.pubkey, friend.pubkey], public: [] })
-    expect(routeLookups([guest.pubkey, friend.pubkey], 'public', rules)).toEqual({ room: [], public: [guest.pubkey, friend.pubkey] })
-  })
-
-  it('asks about the signed-in account on the public relays whatever the caller asked for', () => {
-    expect(routeLookups([account.pubkey, guest.pubkey], 'room', rules)).toEqual({ room: [guest.pubkey], public: [account.pubkey] })
-    expect(routeLookups([account.pubkey], 'public', rules)).toEqual({ room: [], public: [account.pubkey] })
-  })
-
-  it('treats the account as a real key even if its bytes were once generated here', () => {
-    const same = { madeHere: createMadeHere(() => account.hex), isAccount: (pubkey: string) => pubkey === account.pubkey, roomOpen: true }
-    expect(routeLookups([account.pubkey], 'room', same)).toEqual({ room: [], public: [account.pubkey] })
-    // And the same browser's key is still skipped when it is not the account.
-    expect(routeLookups([mine.pubkey], 'room', { ...same, madeHere: createMadeHere(() => mine.hex) })).toEqual({ room: [], public: [] })
-  })
-
-  it('asks the public relays alone when no room is open, so no pool is built for nowhere', () => {
-    const none = { ...rules, roomOpen: false }
-    expect(routeLookups([guest.pubkey, friend.pubkey], 'room', none)).toEqual({ room: [], public: [guest.pubkey, friend.pubkey] })
-    expect(routeLookups([mine.pubkey], 'room', none)).toEqual({ room: [], public: [] })
-  })
-
-  it('asks once about a key named many times, as a chat log names it', () => {
-    expect(routeLookups([guest.pubkey, guest.pubkey, friend.pubkey, guest.pubkey], 'room', rules)).toEqual({ room: [guest.pubkey, friend.pubkey], public: [] })
-  })
-})
-
 describe('lookupHosts', () => {
   it('names each host once, in order, and leaves out what does not parse', () => {
     expect(lookupHosts(['wss://nos.lol', 'wss://nos.lol/', 'not a url', 'wss://purplepag.es', 'ws://127.0.0.1:7777/x']))
@@ -110,23 +73,10 @@ describe('hostList', () => {
 describe('the app asks only through the wrapper', () => {
   const main = readFileSync(new URL('./main.ts', import.meta.url), 'utf8')
 
-  it('has no call to the book’s want outside wantProfiles, so no lookup skips the rules', () => {
-    expect(main.match(/\bprofiles\.want\(/g)).toHaveLength(2)
+  it('opens directory subscriptions only through the private-room guard', () => {
+    expect(main.match(/\bprofiles\.want\(/g)).toHaveLength(1)
     const wrapper = main.slice(main.indexOf('function wantProfiles('), main.indexOf('function renderLookupHosts('))
-    expect(wrapper.match(/\bprofiles\.want\(/g)).toHaveLength(2)
-    expect(wrapper).toContain("profiles.want(routed.room, 'room')")
-    expect(wrapper).toContain("profiles.want(routed.public, 'public')")
-  })
-
-  it('closes the room’s lookups wherever a room is left or opened', () => {
-    const body = (name: string) => {
-      const start = main.indexOf(`function ${name}(`)
-      return main.slice(start, main.indexOf('\nfunction ', start + 1))
-    }
-    // Going home on a docked call never reaches roomFromLocation.
-    expect(body('resetRoomState')).toContain('profiles.restartRoom()')
-    expect(body('roomRelaysApplied')).toContain('profiles.restartRoom()')
-    expect(main.match(/profiles\.restartRoom\(\)/g)!.length).toBeGreaterThanOrEqual(4)
-    expect(main).not.toMatch(/profiles\.setEnabled\(false\); profiles\.setEnabled\(profilesEnabled\)/)
+    expect(wrapper).toContain('if (privateProfileRoute()) return')
+    expect(wrapper).toContain("profiles.want(peers, 'public')")
   })
 })

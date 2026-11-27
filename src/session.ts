@@ -19,6 +19,8 @@ import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import type { RoomBoardLog, RoomBoardLogOptions, RoomBoardStorage } from './room-board-log.js'
 import { sanitiseDisplayName } from './display-name.js'
+import { newerProfile, readRoomProfile, type RoomProfile } from './room-profile.js'
+import { isQuietPolicy } from './quiet.js'
 import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { sanitiseLightningAddress } from './donations.js'
 import { resolveSingularRoles } from './roles.js'
@@ -257,6 +259,8 @@ export interface RoomSessionBaseOptions {
    * wire looked like before names existed.
    */
   name?: string
+  /** The signed-in participant's own metadata, shared only in this room. */
+  roomProfile?: RoomProfile
   /**
    * Which call signalling profile this device speaks, published on every
    * roster entry it writes and honoured per pair.
@@ -809,8 +813,12 @@ export class RoomSession {
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>>; call?: CallMembership }
-  /** This participant's own name, sanitised once at construction. */
-  readonly #name?: string
+  #name?: string
+  #nameAt?: number
+  #profile?: RoomProfile
+  #profileAt = 0
+  #profileSentAt = -Infinity
+  readonly #roomProfiles = new Map<string, { profile: RoomProfile; at: number }>()
   /** This agent's verified ownership proof, when it has one. */
   readonly #owner?: AgentOwnership
   /** Where the current assist offer comes from. Starts as whatever the
@@ -980,6 +988,7 @@ export class RoomSession {
     this.device = getPublicKey(opts.deviceSk)
     this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
+    this.#nameAt = this.#name ? this.#nameClock() : undefined
     this.#assist = opts.relay ? opts.assist : undefined
 
     const participant = opts.identity ? normaliseHex(opts.identity.pubkey) : undefined
@@ -998,6 +1007,7 @@ export class RoomSession {
       // comparison against a roster entry or a credential is correct by
       // construction. See `hex.ts`'s `normaliseHex`.
       this.participant = normaliseHex(opts.identity.pubkey)
+      this.#initialRoomProfile(opts.roomProfile)
       if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
       if (native) native.attach(this.#nativeView())
       return
@@ -1010,6 +1020,7 @@ export class RoomSession {
     if (!verdict.ok) throw new Error(`device credential rejected: ${verdict.reason}`)
     if (verdict.device !== this.device) throw new Error('device credential names a different device')
     this.participant = verdict.participant
+    this.#initialRoomProfile(opts.roomProfile)
     this.#credential = opts.credential
     if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
     if (native) throw new Error('native Session requires retained participant custody')
@@ -1591,7 +1602,7 @@ export class RoomSession {
     )
 
     try {
-      await this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution)
+      await this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution, true)
     } catch (err) {
       // Nobody heard us, so nothing of ours may stay on the network: a mesh
       // that never joined must not answer offers, and a subscription with no
@@ -2961,7 +2972,44 @@ export class RoomSession {
    * changed track list too.
    */
   async announce(): Promise<void> {
-    await this.#publishEntry(false)
+    await this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, this.#opts.protocol, true)
+  }
+
+  #nameClock(): number { return this.#nowMs?.() ?? this.#now() * 1000 }
+
+  /** Keep the device and its call in place while restating its guest name. */
+  async setDisplayName(value: string): Promise<void> {
+    const name = sanitiseDisplayName(value)
+    if (!name || !this.#self || this.#left || this.#closed) throw new Error('Enter a name in an open room.')
+    if (name !== this.#name) {
+      this.#name = name
+      this.#nameAt = Math.max(this.#nameClock(), (this.#nameAt ?? 0) + 1)
+      this.#chat?.setDisplayName(name)
+      for (const log of this.#channels.values()) log.setDisplayName(name)
+      this.#notify()
+    }
+    await this.#publishEntry(true)
+  }
+
+  #initialRoomProfile(value?: RoomProfile): void {
+    if (isQuietPolicy(this.#opts.policy)) return
+    this.#profile = value && readRoomProfile(value, this.participant, this.#now())
+    if (this.#profile) this.#profileAt = this.#nameClock()
+  }
+
+  roomProfile(participant: string): RoomProfile | undefined {
+    if (this.#left || this.#closed || this.#removed.has(participant) || this.#blocked(participant)) return
+    return participant === this.participant ? this.#profile : this.#roomProfiles.get(participant)?.profile
+  }
+
+  async setRoomProfile(value: RoomProfile): Promise<void> {
+    if (!this.#self || this.#left || this.#closed || isQuietPolicy(this.#opts.policy)) throw new Error('Profile sharing is unavailable in this room.')
+    const profile = readRoomProfile(value, this.participant, this.#now())
+    if (!profile || this.#profile && newerProfile(this.#profile.event, profile.event)) throw new Error('Use your current signed kind 0.')
+    this.#profile = profile
+    this.#profileAt = Math.max(this.#nameClock(), this.#profileAt + 1)
+    this.#notify()
+    await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, this.#opts.protocol, true)
   }
 
   #outgoingLiveRecording?: LiveRecordingState
@@ -3048,11 +3096,11 @@ export class RoomSession {
   }
 
   #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean,
-    execution = this.#opts.protocol): Promise<void> {
-    return protocolTask(execution, 'roster-publication', owned => this.#publishOwnedEntry(reply, left, live, allowed, owned))
+    execution = this.#opts.protocol, shareProfile = false): Promise<void> {
+    return protocolTask(execution, 'roster-publication', owned => this.#publishOwnedEntry(reply, left, live, allowed, owned, shareProfile))
   }
   async #publishOwnedEntry(reply: boolean, left: boolean, live: LiveRecordingState | undefined, allowed: (() => boolean) | undefined,
-    execution: ProtocolExecution | undefined): Promise<void> {
+    execution: ProtocolExecution | undefined, shareProfile: boolean): Promise<void> {
     const prepare = () => {
     this.#opts.protocol?.check('roster-preparation')
     if (!this.#ensureLocalAccess(this.#now())) return
@@ -3074,6 +3122,10 @@ export class RoomSession {
     // Sanitised once here and once more by the encoder; the second pass is
     // the boundary every entry crosses, this one keeps the option honest.
     const zap = this.#opts.agent === true ? sanitiseLightningAddress(this.#opts.zap) : undefined
+    const now = this.#now()
+    // Arrivals and their replies normally exchange the profile. Restate it
+    // occasionally to recover from a missed packet without growing every heartbeat.
+    const ownProfile = !left && this.#profile && (shareProfile || !reply && now - this.#profileSentAt >= 120) ? this.#profile : undefined
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
@@ -3081,8 +3133,9 @@ export class RoomSession {
       credential: self.credential,
       tracks: self.tracks,
       claims: self.claims,
-      updatedAt: this.#now(),
-      ...(this.#name !== undefined ? { name: this.#name } : {}),
+      updatedAt: now,
+      ...(this.#name !== undefined ? { name: this.#name, nameAt: this.#nameAt } : {}),
+      ...(ownProfile ? { profile: ownProfile, profileAt: this.#profileAt } : {}),
       ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
       // Announced in every room, used there or not, so that an admitted
       // device without one reliably means an older client: the seal rule
@@ -3126,6 +3179,7 @@ export class RoomSession {
       if (!publicationAllowed()) throw new Error('The original call changed before the warning was confirmed.')
       if (execution) await execution.run('roster-acknowledgement', () => this.#ingest(event)); else this.#ingest(event)
     } else await (prepared.pending ?? this.#opts.transport.publish(event))
+    if (entry.profile) this.#profileSentAt = Math.max(this.#profileSentAt, entry.updatedAt)
   }
 
   #every(intervalMs: number, run: () => void): ReturnType<typeof setInterval> {
@@ -3253,7 +3307,7 @@ export class RoomSession {
       if (this.#protocolTimers.has('reply') || this.#left || !this.#self) return
       const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
       this.#protocolTimers.schedule('reply', Math.floor(randomFraction() * jitter), execution =>
-        this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution))
+        this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution, true))
       return
     }
     if (this.#replyTimer !== undefined || this.#left || !this.#self) return
@@ -3261,7 +3315,7 @@ export class RoomSession {
     this.#replyTimer = setTimeout(
       () => {
         this.#replyTimer = undefined
-        this.#publishEntry(true).catch(() => {})
+        this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, this.#opts.protocol, true).catch(() => {})
       },
       Math.floor(randomFraction() * jitter),
     )
@@ -3792,7 +3846,19 @@ export class RoomSession {
       this.#departed.delete(key)
     }
 
+    if (existing?.nameAt !== undefined && (entry.nameAt ?? 0) < existing.nameAt) {
+      entry.name = existing.name
+      entry.nameAt = existing.nameAt
+    }
     this.#entries.set(key, entry)
+    const profile = entry.profile, at = entry.profileAt
+    if (profile && at !== undefined && entry.participant !== this.participant && !this.#blocked(entry.participant) && !isQuietPolicy(this.#opts.policy)) {
+      const previous = this.#roomProfiles.get(entry.participant)
+      if (!previous || newerProfile(profile.event, previous.profile.event) || profile.event.id === previous.profile.event.id && at > previous.at) {
+        this.#roomProfiles.set(entry.participant, { profile, at })
+        if (this.#roomProfiles.size > 256) this.#roomProfiles.delete(this.#roomProfiles.keys().next().value!)
+      }
+    }
     const live = entry.liveRecording
     if (live && verifyLiveRecordingState({ roomId: this.roomId, state: live, authority: this.#opts.authority,
       participant: entry.participant, device: entry.device, call: entry.call?.id, profile: entry.recordingProfile })) {
@@ -3986,9 +4052,12 @@ export class RoomSession {
       // not yet on the laptop - the most recently restated entry wins, so
       // every member of the room settles on the same answer rather than on
       // whichever entry happened to arrive first.
-      if (entry.name !== undefined && (view.name === undefined || entry.updatedAt >= (nameStamp.get(entry.participant) ?? 0))) {
-        view.name = entry.name
-        nameStamp.set(entry.participant, entry.updatedAt)
+      const own = self && mine(entry)
+      const name = own ? this.#name : entry.name
+      const namedAt = (own ? this.#nameAt : entry.nameAt) ?? entry.updatedAt * 1000
+      if (name !== undefined && (view.name === undefined || namedAt >= (nameStamp.get(entry.participant) ?? 0))) {
+        view.name = name
+        nameStamp.set(entry.participant, namedAt)
       }
       // One entry per device until two tabs of one browser are in the same
       // room; the device is still one device, so it appears once.
@@ -4191,6 +4260,7 @@ export class RoomSession {
     this.#peerDescriptorListeners.clear()
     this.#peerDescriptors.clear()
     this.#entries.clear()
+    this.#roomProfiles.clear()
     this.#seenAt.clear()
     const retention = this.#retentionWork?.catch(() => {}).then(() => {
       this.#discardPendingCredential()

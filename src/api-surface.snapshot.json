@@ -686,6 +686,7 @@
     "RoomNameRecord",
     "RoomNameSession",
     "RoomPolicy",
+    "RoomProfile",
     "RoomSession",
     "RoomSessionBaseOptions",
     "RoomSessionOptions",

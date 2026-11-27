@@ -1,5 +1,6 @@
 import type { Reachability } from './reachability.js'
 import type { LiveRecordingState } from './live-recording.js'
+import type { RoomProfile } from './room-profile.js'
 import type { SpryOffer } from './spry.js'
 // `DeviceCredential`, `AccessTier`, `AgentRule`, `RoomPolicy` and `KindredProof`
 // moved to @forgesworn/fold-kit (see the T2.1 codec cutover). Imported as types
@@ -136,6 +137,11 @@ export interface RosterEntry {
    * anyone who does not use this at all.
    */
   name?: string
+  /** When this name was chosen, in Unix milliseconds. Heartbeats keep it. */
+  nameAt?: number
+  /** The participant's own Nostr metadata, inside the room encryption. */
+  profile?: RoomProfile
+  profileAt?: number
   /** This endpoint. */
   device: string
   /**

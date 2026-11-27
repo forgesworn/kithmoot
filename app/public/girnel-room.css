@@ -1,0 +1,5 @@
+.card-detail button.quiet.save-description {
+  align-self: start;
+  border: 1px solid currentColor;
+  background: var(--control);
+}

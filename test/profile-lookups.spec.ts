@@ -15,11 +15,8 @@ import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCre
  * browser and not what the screen shows: every frame a page sends to any
  * relay is recorded, the room's own and the public profile relays alike.
  *
- * Two rules are held to. A browser never asks about the name-only key it
- * made for itself. And the people in the chats list, who are not in the room
- * on screen, are asked about on the public profile relays alone, so the
- * relays of whichever room happens to be open do not learn who the person
- * talks to elsewhere.
+ * A room or chat should never prompt a lookup of its participants, even
+ * with the public People directory enabled.
  */
 
 test('saved public profile opt-out survives actual app startup and reload', async ({ page, context, baseURL }) => {
@@ -129,10 +126,6 @@ function asks(sent: Frame[]): { url: string; authors: string[] }[] {
   return found
 }
 
-/** The relays that were asked about this key. */
-const relaysAskedAbout = (sent: Frame[], pubkey: string): string[] => [...new Set(asks(sent).filter(ask => ask.authors.includes(pubkey)).map(ask => ask.url))]
-const hostOf = (url: string): string => new URL(url).host
-
 /** A browser that already holds a name-only participant key, and the private
  *  chats it already has, as a browser that has been used before does. */
 async function seed(context: BrowserContext, participant: Uint8Array, rooms: { id: string; link: string; name: string }[]): Promise<void> {
@@ -147,12 +140,12 @@ async function seed(context: BrowserContext, participant: Uint8Array, rooms: { i
   }, { key: bytesToHex(participant), rooms })
 }
 
-test('a browser never asks any relay about the name-only key it made itself, and does ask about the people in the room', async ({ browser, baseURL }) => {
+test('room participants do not trigger kind-0 queries, including after reopening', async ({ browser, baseURL }) => {
   test.setTimeout(180_000)
   const roomRelay = new URL('/__test-relay', baseURL); roomRelay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 900 } })
   const sent = await record(context, roomRelay.href)
-  const own = generateSecretKey(), ownKey = getPublicKey(own)
+  const own = generateSecretKey()
   await seed(context, own, [])
   const ada = localIdentity(generateSecretKey())
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [roomRelay.href], iceUrls: [] })
@@ -169,30 +162,18 @@ test('a browser never asks any relay about the name-only key it made itself, and
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Said by the key this browser made')
 
-    // Somebody else in the room is asked about, on the room's relay as well
-    // as the public ones: the control that shows the recorder would have
-    // seen a question about this browser's own key had one been sent.
-    await expect.poll(() => relaysAskedAbout(sent, ada.pubkey).length, { timeout: 60_000 }).toBeGreaterThan(1)
-    const askedOf = relaysAskedAbout(sent, ada.pubkey)
-    expect(askedOf).toContain(roomRelay.href)
-    expect(askedOf.map(hostOf)).toEqual(expect.arrayContaining(PUBLIC_PROFILE_HOSTS.slice(0, 1)))
-
-    // The browser's own key was on screen all that time, in the roster and
-    // on its message, and no relay was asked about it.
-    expect(asks(sent).flatMap(ask => ask.authors)).not.toContain(ownKey)
-    // Nor is it asked when the room is left for the list and opened again.
-    // A room this browser has joined opens again from its link by itself.
+    expect(asks(sent)).toEqual([])
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
-    await expect.poll(() => asks(sent).length, { timeout: 60_000 }).toBeGreaterThan(0)
-    expect(asks(sent).flatMap(ask => ask.authors)).not.toContain(ownKey)
+    await expect(page.locator('#chatLog')).toContainText('Hello from Ada')
+    expect(asks(sent)).toEqual([])
   } finally {
     await agent.leave()
     await context.close()
   }
 })
 
-test('a private chat peer who is not in the open room is asked about on the public profile relays and never on the room’s', async ({ browser, baseURL }) => {
+test('private chats in the rooms list do not trigger kind-0 queries', async ({ browser, baseURL }) => {
   test.setTimeout(180_000)
   const roomRelay = new URL('/__test-relay', baseURL); roomRelay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 900 } })
@@ -217,28 +198,18 @@ test('a private chat peer who is not in the open room is asked about on the publ
     // The private chat is on the list beside the room.
     await expect(page.locator(`#roomList [data-room="${privateId}"]`)).toBeVisible({ timeout: 60_000 })
 
-    // The peer is asked about, where the public profiles are...
-    await expect.poll(() => relaysAskedAbout(sent, peer).length, { timeout: 60_000 }).toBeGreaterThan(0)
-    // ...and the person in the room is asked about on the room's relay, so
-    // the control holds: the room's relay would have been asked about the
-    // peer too, had the peer's lookup gone there.
-    await expect.poll(() => relaysAskedAbout(sent, ada.pubkey), { timeout: 60_000 }).toContain(roomRelay.href)
-    const askedOfPeer = relaysAskedAbout(sent, peer)
-    expect(askedOfPeer).not.toContain(roomRelay.href)
-    expect(askedOfPeer.map(hostOf).every(host => PUBLIC_PROFILE_HOSTS.includes(host))).toBe(true)
-    expect(asks(sent).flatMap(ask => ask.authors)).not.toContain(ownKey)
-
     // The dialog that holds the switch names the servers a lookup asks.
     await openProfileSettings(page)
     for (const host of PUBLIC_PROFILE_HOSTS) await expect(page.locator('#lookupHosts')).toContainText(host)
     await expect(page.locator('#lookupHosts')).not.toContainText(roomRelay.host)
+    expect(asks(sent)).toEqual([])
   } finally {
     await agent.leave()
     await context.close()
   }
 })
 
-test('going home on a docked call closes the room’s lookups, so its people are asked about afresh on coming back', async ({ browser, baseURL }) => {
+test('docking a call and returning to it do not trigger kind-0 queries', async ({ browser, baseURL }) => {
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone and camera')
   test.setTimeout(180_000)
   const roomRelay = new URL('/__test-relay', baseURL); roomRelay.protocol = 'wss:'
@@ -253,26 +224,12 @@ test('going home on a docked call closes the room’s lookups, so its people are
     await joinWithMedia(page, link, 'Ada')
     await agent.chat.send('Hello from Bo')
     await expect(page.locator('#chatLog')).toContainText('Hello from Bo', { timeout: 60_000 })
-    const askedOnRoomRelay = () => asks(sent).filter(ask => ask.url === roomRelay.href && ask.authors.includes(bo.pubkey)).length
-    await expect.poll(askedOnRoomRelay, { timeout: 60_000 }).toBeGreaterThan(0)
-    const before = askedOnRoomRelay()
-
-    // Home, with the call kept on a dock. The room's lookups end here; the
-    // room's relays stay in the lookup pool only if this did not restart it.
-    const mark = sent.length
     await leaveToChats(page)
     await expect(page.locator('#callDock')).toBeVisible()
-    // The docked call's people are not the room on screen's, and nothing is
-    // asked about them anywhere but the public profile relays.
-    await page.waitForTimeout(2_000)
-    const atHome = asks(sent.slice(mark))
-    expect(atHome.every(ask => PUBLIC_PROFILE_HOSTS.includes(hostOf(ask.url)))).toBe(true)
-    // Back, to the same room and the same call without a rejoin. Its people
-    // are asked about again, which only happens if the book was restarted.
     await page.locator('#callDockBack').click()
     await expect(page.locator('#callDock')).toBeHidden()
     await expect(page.locator('#callBay')).toBeVisible()
-    await expect.poll(askedOnRoomRelay, { timeout: 60_000 }).toBeGreaterThan(before)
+    expect(asks(sent)).toEqual([])
   } finally {
     await agent.leave()
     await context.close()
