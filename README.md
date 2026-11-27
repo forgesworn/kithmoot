@@ -893,7 +893,8 @@ repeated on every run by `npm run test:e2e`, and against real public relays
 by `E2E_RELAYS=live npm run test:e2e`:
 
 1. On a **laptop**, open the app, choose **Start a room**, enter your name
-   and choose **Go in**. Open **Call**, then **Screen share**, and pick a window.
+   and choose **Go in**. Choose **Share screen** in the room header and pick a
+   window. Turn on the microphone or camera from the call controls when needed.
 2. Open **Room details**, then **Add a device**. Copy that link, not the plain room link above
    it, and send it to a **phone**. Leave the laptop page open: it is what
    answers the phone, and closing it retires the link.

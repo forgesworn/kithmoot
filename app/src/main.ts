@@ -5708,6 +5708,7 @@ let screenTrack: MediaStreamTrack | undefined
  *  when the person unticked the box - a share still works with no audio, it
  *  is simply silent, which is what the note near the toggle says. */
 let screenAudioTrack: MediaStreamTrack | undefined
+let pendingScreenStream: MediaStream | undefined
 /** Whether this device's own share may be capturing KithMoot itself right
  *  now - a full-screen area, a whole screen, or a window that may be ours -
  *  and so this device's own live preview of its own share is withheld; see
@@ -6873,12 +6874,8 @@ function showRoomTools(): void {
 /**
  * The call.
  *
- * Camera, microphone and screen share were three buttons on the message
- * screen at all times, in a room where most of the time nobody is on a
- * call. A phone shows call controls during a call and a call button the
- * rest of the time; so does this. Anything of yours that is live keeps the
- * controls open, because a control that hides while it is doing something
- * is how a camera ends up on with nobody watching.
+ * The room header offers a call or a screen share. The media controls
+ * stay open while this device is on a call or has a live track.
  */
 function setCallOpen(open: boolean): void {
   const bay = $('callBay')
@@ -7173,15 +7170,16 @@ $('callTabNoticeTake').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
 
-/** Start a call, or join the one that is on. The same act: say which call
- *  this device is on. Joining switches the microphone on; the camera waits for its button. */
-async function joinCall(): Promise<void> {
+/** Join the room's call, or start one. A captured screen is a share-only
+ *  start, so it skips the usual microphone-on-join preference. */
+async function joinCall({ screenShare }: { screenShare?: MediaStreamTrack } = {}): Promise<void> {
   if (roomUsesBothy) throw new Error('Calls and media are unavailable on this text-only Bothy route.')
   // One call at a time: the room on screen beside a docked call is for
   // reading and writing only.
   if (docked()) return
   const s = session
   if (!s || s.call) return
+  const generation = callGeneration
   // Open audio while this call still has the tap's browser activation.
   // Relay preparation and presence can take seconds; Safari may refuse a
   // context first resumed after those awaits.
@@ -7232,7 +7230,8 @@ async function joinCall(): Promise<void> {
   // not born suspended - see remote-volume.ts. Harmless to call whether or
   // not this call ever needs it.
   remoteVolume.resume()
-  if (!await consentToRecordedCall() || session !== s || s.call) return
+  if (!await consentToRecordedCall() || session !== s || s.call || s.closed || generation !== callGeneration) return
+  if (screenShare && (screenShare.readyState !== 'live' || switchingRoom || meetingRefuses())) return
   const existing = s.calls()[0]
   leftCall = false
   callWanted = true
@@ -7244,15 +7243,16 @@ async function joinCall(): Promise<void> {
   const besideOwnDevice = !!existing && ownDeviceElsewhereOnCall(s.participants(), id)
   if (besideOwnDevice && !micTrack) monitorClaimedAt = WEAK_MONITOR_CLAIM
   callProjectContexts.set(s, { call: id, project: roomProjectContext })
-  logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join${besideOwnDevice ? ', beside another own device' : ''}`)
+  logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on ${screenShare ? 'Share screen' : 'Join'}${besideOwnDevice ? ', beside another own device' : ''}`)
   await s.setCall({ id, since: nowSeconds() })
+  if (mediaSession() !== s || generation !== callGeneration || !s.call) return
   if (nodeRuntimes.has(s)) {
     nodeCallJoinedAt = Date.now(); nodeCallReached.clear()
     clearTimeout(nodeCallsFullTimer)
     nodeCallsFullTimer = setTimeout(updateUi, NODE_CALLS_FULL_GRACE_MS + 250)
   }
   publishActiveTracks()
-  setCallOpen(true)
+  if (!docked()) setCallOpen(true)
   void callWakeLock.acquire()
   // Claiming the call for this device's key sends every other tab of this
   // device in this room quiet on it - see the CallTabLock handlers above.
@@ -7268,7 +7268,7 @@ async function joinCall(): Promise<void> {
   // silent calls, never asked for the microphone, unable to find the button.
   // A refusal leaves them in the call with the blocked-microphone notice.
   // Not beside another of their own devices: that one has the microphone.
-  if (!besideOwnDevice && loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) {
+  if (!screenShare && !besideOwnDevice && loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) {
     await toggleMic().then(() => noteMediaBlocked(undefined)).catch(err => noteMediaBlocked('Microphone', err))
   }
 }
@@ -7277,6 +7277,8 @@ async function joinCall(): Promise<void> {
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
   desktopShareArea.stop(); browserShare.stop()
+  for (const track of pendingScreenStream?.getTracks() ?? []) track.stop()
+  pendingScreenStream = undefined
   shareMarksOverlay.close()
   desktopRedaction.closeAll()
   desktopRedaction.setHidden(false)
@@ -7466,6 +7468,8 @@ function renderCallState(views: ParticipantView[]): void {
   window.kithmootDesktop?.setCallActive(mineOn)
   callFocus.setOnCall(mineOn && !docked())
   const button = $('callToggle')
+  $('shareScreenFromChat').hidden = !session || session.closed || state.mineOn || state.leaving || docked() || roomUsesBothy ||
+    typeof navigator.mediaDevices?.getDisplayMedia !== 'function'
   const current = calls[0]
   const starter = current && views
     .filter(view => view.call?.id === current.id)
@@ -8624,10 +8628,7 @@ let screenStarting = false
 async function toggleScreen(area = false, protectedShare = false): Promise<void> {
   if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
-  if (switchingRoom) return
-  if (screenStarting) return
-  if (!screenTrack && (meetingRefuses() || !await consentToRecordedCall())) return
-  if (!screenTrack) callWanted = true
+  if (switchingRoom || leavingCall || screenStarting) return
   if (screenTrack) {
     desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
@@ -8648,9 +8649,11 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
     // was told had stopped stays frozen on everybody else's display.
     publishActiveTracks()
   } else {
+    const owner = mediaSession()
+    if (!owner || owner.closed || meetingRefuses()) return
     // Absent on iOS Safari and unreliable on Android Chrome - which is
     // exactly why the mobile app is native rather than a browser tab.
-    if (!navigator.mediaDevices.getDisplayMedia) {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
       throw new Error(
         'This browser cannot share a screen. iOS has no way to do it from any browser - ' +
           'use a desktop browser, or the Android app.',
@@ -8670,16 +8673,24 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
       surfaceSwitching: 'include',
     }
     screenStarting = true
-    let stream: MediaStream
+    const chatButton = $('shareScreenFromChat')
+    chatButton.setAttribute('aria-disabled', 'true')
+    let stream: MediaStream | undefined
+    let adopted = false
     let surface: string | undefined
     let capture: CaptureIdentity = {}
+    const captureIsCurrent = () => generation === callGeneration && mediaSession() === owner && !owner.closed
     try {
+      if (!owner.call) resumeBlockedAudio()
       // The desktop app sends every whole-screen share through the redaction
       // canvas, boxes or not, so the raw capture itself is never published.
       // Awaited only in the desktop app: a browser's own chooser keeps the
       // click's activation without a round trip in front of it.
       if (desktopRedaction.supported) await desktopRedaction.begin()
+      if (!captureIsCurrent()) return
       stream = protectedShare ? await browserShare.start(area) : area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      if (!captureIsCurrent()) return
+      pendingScreenStream = stream
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
       // Read off the raw capture, before any redaction canvas stands in for it.
       capture = {
@@ -8691,76 +8702,93 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
         if (state.source?.kind === 'window') capture.chosenId = state.source.captureId
       }
       if (!protectedShare && !area && desktopRedaction.supported) {
-        const raw = stream
-        stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
+        stream = await desktopRedaction.redact(stream, renderRedactionNote)
+        if (!captureIsCurrent()) return
+        pendingScreenStream = stream
+      }
+      const picture = stream.getVideoTracks()[0]
+      if (!captureIsCurrent() || picture?.readyState !== 'live') return
+      // Open the picker during the click. The normal call setup can ask
+      // for a relay or recording consent before any selected media is sent.
+      if (!owner.call) {
+        const selected = stream
+        picture.addEventListener('ended', () => {
+          if (pendingScreenStream === selected) {
+            for (const track of selected.getAudioTracks()) track.stop()
+          }
+        }, { once: true })
+        await joinCall({ screenShare: picture })
+      }
+      if (!captureIsCurrent() || !owner.call || leftCall || !meetingLetsMeSend() || picture.readyState !== 'live') return
+      screenTrack = picture
+      screenAudioTrack = stream.getAudioTracks().find(track => track.readyState === 'live')
+      adopted = true
+    } catch (error) {
+      if (captureIsCurrent()) throw error
+      return
+    } finally {
+      pendingScreenStream = undefined
+      screenStarting = false
+      chatButton.removeAttribute('aria-disabled')
+      if (!adopted) {
+        for (const track of stream?.getTracks() ?? []) track.stop()
+        if (area) desktopShareArea.stop()
+        if (protectedShare) browserShare.stop()
       }
     }
-    finally { screenStarting = false }
-    if (generation !== callGeneration || leftCall || !meetingLetsMeSend()) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); browserShare.stop(); return }
-    screenTrack = stream.getVideoTracks()[0]
-    screenAudioTrack = stream.getAudioTracks()[0]
     // A share carries text and interfaces, not faces: ask every encoder on
     // the path for sharpness over motion. The mesh reads the hint when it
     // budgets the sender (see tuneShareSender in src/peer.ts).
-    if (screenTrack) screenTrack.contentHint = 'detail'
+    const shared = screenTrack
+    shared.contentHint = 'detail'
     // An area share already tracks this precisely, reactively, via the
     // frame's own rect (see `wholeDisplay` above, on `desktopShareArea`); a
     // plain share carries the standard hint on the captured track, read
     // before any redaction canvas stood in for it, and needs checking only
     // the once, here.
     if (!area) shareMayShowItself = mayShowItself(surface, capture)
-    if (screenTrack) {
-      // Fires when the user stops sharing from the browser's own UI, not
-      // ours - the toggle has to notice either way.
-      screenTrack.addEventListener('ended', () => {
-        if (generation !== callGeneration) return
-        desktopShareArea.stop(); browserShare.stop()
-        shareMarksOverlay.close()
-        screenTrack = undefined
-        shareMayShowItself = false
-        desktopRedaction.setHidden(false)
-        screenAudioTrack?.stop()
-        screenAudioTrack = undefined
-        localPreviewEls.get('screen')?.remove()
-        localPreviewEls.delete('screen')
-        floatingSharePreview.close()
-        hideDrawingNotice()
-        clearShareError()
-        publishActiveTracks()
-        updateUi()
-      })
-      // The picture can keep sharing after its sound stops on its own - a
-      // tab switch, on a browser that ties system audio to a shared tab
-      // having focus. Unadvertise the sound and leave the picture alone.
-      screenAudioTrack?.addEventListener('ended', () => {
-        if (generation !== callGeneration) return
-        screenAudioTrack = undefined
-        publishActiveTracks()
-        updateUi()
-      })
-      addLocalPreview('screen', screenTrack)
+    // Fires when the user stops sharing through the browser's own UI.
+    shared.addEventListener('ended', () => {
+      if (generation !== callGeneration || screenTrack !== shared) return
+      desktopShareArea.stop(); browserShare.stop()
+      shareMarksOverlay.close()
+      screenTrack = undefined
+      shareMayShowItself = false
+      desktopRedaction.setHidden(false)
+      screenAudioTrack?.stop()
+      screenAudioTrack = undefined
+      localPreviewEls.get('screen')?.remove()
+      localPreviewEls.delete('screen')
+      floatingSharePreview.close()
+      hideDrawingNotice()
       clearShareError()
       publishActiveTracks()
-      offerFloatingMarks()
-      // Native drawings follow the selected window or display. The
-      // main process's record of what was captured has to agree with the
-      // track's own idea of it, as it does for redaction.
-      if (!area && window.kithmootDesktop?.supportsCompositorMarks) {
-        const shared = screenTrack
-        void shareMarksOverlay.openCompositor(surface === 'window' ? 'window' : 'screen', () => screenTrack === shared ? screenSource(meParticipant, myDeviceId)?.id ?? shared.id : undefined)
-      }
-      if (!area && shareMarksOverlay.supported) {
-        const shared = screenTrack
-        void desktopRedaction.refresh().then(state => {
-          if (screenTrack !== shared || !effectiveSource(state.source, surface)) return
-          shareMarksOverlay.open(() => screenSource(meParticipant, myDeviceId)?.id ?? shared.id)
-        })
-      }
-    } else {
-      // No picture came back at all: nothing to show, so stop whatever the
-      // browser did hand over rather than leak a live capture nobody sees.
-      for (const track of stream.getTracks()) track.stop()
+      updateUi()
+    })
+    // The picture can keep sharing after its sound stops on its own, for
+    // example when a browser ties audio capture to a tab having focus.
+    const sharedAudio = screenAudioTrack
+    sharedAudio?.addEventListener('ended', () => {
+      if (generation !== callGeneration || screenAudioTrack !== sharedAudio) return
       screenAudioTrack = undefined
+      publishActiveTracks()
+      updateUi()
+    })
+    addLocalPreview('screen', shared)
+    clearShareError()
+    publishActiveTracks()
+    offerFloatingMarks()
+    // Native drawings follow the selected window or display. The
+    // main process's record of what was captured has to agree with the
+    // track's own idea of it, as it does for redaction.
+    if (!area && window.kithmootDesktop?.supportsCompositorMarks) {
+      void shareMarksOverlay.openCompositor(surface === 'window' ? 'window' : 'screen', () => screenTrack === shared ? screenSource(meParticipant, myDeviceId)?.id ?? shared.id : undefined)
+    }
+    if (!area && shareMarksOverlay.supported) {
+      void desktopRedaction.refresh().then(state => {
+        if (screenTrack !== shared || !effectiveSource(state.source, surface)) return
+        shareMarksOverlay.open(() => screenSource(meParticipant, myDeviceId)?.id ?? shared.id)
+      })
     }
   }
   updateUi()
@@ -19676,9 +19704,9 @@ $('roomIdentity').addEventListener('click', () => openRoomSheet())
 const NARROW_ROOM_BAR = '(max-width: 599px)'
 const ROOM_INFO_KEYS = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent) ? '⌘I' : 'Ctrl+I'
 
-/** Whether the header has left its call button out, so the menu carries it:
+/** Whether the header has put its call and share actions in the menu:
  *  320 px wide with Huge text, where the title would have no room. */
-function callButtonInMenu(): boolean {
+function callActionsInMenu(): boolean {
   const root = document.documentElement
   return window.matchMedia('(max-width: 359px)').matches && root.dataset.textSize === 'huge' && !root.hasAttribute('data-call-bar') && !root.hasAttribute('data-call-docked')
 }
@@ -19799,7 +19827,11 @@ function renderRoomMenu(): void {
   const roomId = currentRoomId()
   const groups: Array<(menu: HTMLElement) => void> = [
     menu => {
-      if (callButtonInMenu() && $('callToggle').getAttribute('aria-label')) menuItem(menu, $('callToggle').getAttribute('aria-label')!, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
+      if (callActionsInMenu()) {
+        const callLabel = $('callToggle').getAttribute('aria-label')
+        if (callLabel) menuItem(menu, callLabel, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
+        if (!$('shareScreenFromChat').hidden) menuItem(menu, 'Share screen', () => $('shareScreenFromChat').click(), { icon: 'screen', action: 'share-screen' })
+      }
       menuItem(menu, 'Room info', () => openRoomSheet('main', $('roomMenu')), { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
       if (window.matchMedia(NARROW_ROOM_BAR).matches) {
         menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
@@ -23347,6 +23379,12 @@ if (desktopRedaction.supported) {
 }
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch(showShareError)
+})
+$('shareScreenFromChat').addEventListener('click', () => {
+  const fromHeader = document.activeElement === $('shareScreenFromChat')
+  toggleScreen().then(() => {
+    if (fromHeader && screenTrack && document.activeElement === document.body) $('toggleScreen').focus()
+  }).catch(showShareError)
 })
 $('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {

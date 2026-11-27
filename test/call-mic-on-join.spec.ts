@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, join, newDeviceContext, openCall } from './browser.js'
+import { collectAppDiagnostics } from './app-diagnostics.js'
+import { createRoom, inbound, join, newDeviceContext, open, openCall } from './browser.js'
 
 // Joining a call switches the microphone on, so the browser asks for it
 // there and then (1 November 2026). The rest of the suite saves
@@ -16,6 +17,74 @@ test('starting a call switches the microphone on', async ({ browser, baseURL }) 
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true', { timeout: 30_000 })
   } finally {
     await context.close()
+  }
+})
+
+test('share screen from chat and add voice and video to the same call', async ({ browser, baseURL }) => {
+  const presenterContext = await newDeviceContext(browser, baseURL!, { storageState: { cookies: [], origins: [] } })
+  const viewerContext = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await presenterContext.newPage()
+    const viewer = await viewerContext.newPage()
+    const link = await createRoom(presenter, baseURL!)
+    await open(viewer, link, 'Rowan'); await join(viewer)
+    await expect(viewer.locator('#roomArea')).toBeVisible()
+
+    await presenter.evaluate(() => {
+      const media = navigator.mediaDevices
+      const captureScreen = media.getDisplayMedia.bind(media)
+      const captureInputs = media.getUserMedia.bind(media)
+      let cancelled = false
+      let inputRequests = 0
+      document.documentElement.dataset.testInputRequests = '0'
+      media.getDisplayMedia = options => {
+        if (cancelled) return captureScreen(options)
+        cancelled = true
+        return Promise.reject(new DOMException('Share cancelled', 'NotAllowedError'))
+      }
+      media.getUserMedia = options => {
+        document.documentElement.dataset.testInputRequests = String(++inputRequests)
+        return captureInputs(options)
+      }
+    })
+
+    const share = presenter.getByRole('button', { name: 'Share screen', exact: true })
+    await expect(presenter.locator('#deviceControls')).toBeHidden()
+    await expect(share).toBeVisible({ timeout: 5_000 })
+    await share.click()
+    await expect(presenter.locator('#status')).toHaveText('Share cancelled')
+    await expect(presenter.locator('#callToggle')).toHaveText('Start call')
+    await expect(viewer.locator('#callToggle')).toHaveText('Start call')
+
+    await share.click()
+    await expect(presenter.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(share).toHaveCount(0)
+    await expect(presenter.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
+    await expect(presenter.locator('#toggleCamera')).toHaveAttribute('data-on', 'false')
+    await expect(presenter.locator('html')).toHaveAttribute('data-test-input-requests', '0')
+
+    const presenterCall = async () => JSON.parse(await collectAppDiagnostics(viewer)).participants
+      .find((person: { name: string }) => person.name === 'Ada')?.call?.id
+    await openCall(viewer)
+    await expect(viewer.getByRole('button', { name: 'Expand screen share from Ada' })).toBeVisible()
+    await expect.poll(async () => (await viewer.evaluate(inbound)).framesDecoded).toBeGreaterThan(0)
+    const callId = await presenterCall()
+    expect(callId).toBeTruthy()
+
+    await presenter.locator('#toggleMic').click()
+    await expect(presenter.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await presenter.locator('#toggleCamera').click()
+    await expect(presenter.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(presenter.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    expect(await presenterCall()).toBe(callId)
+
+    await presenter.locator('#toggleScreen').click()
+    await expect(presenter.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await expect(viewer.getByRole('button', { name: 'Expand screen share from Ada' })).toBeHidden()
+    await expect(presenter.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(presenter.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+  } finally {
+    await presenterContext.close(); await viewerContext.close()
   }
 })
 
@@ -74,5 +143,34 @@ test('a relay-only call retries a temporary credential failure without reopening
     await expect.poll(() => attempts, { timeout: 10_000 }).toBeGreaterThan(failedAttempts)
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await expect(page.locator('#relayMissingNote')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('screen sharing from chat releases capture when the required relay is unavailable', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.hide-ip.v1', '1'))
+  await context.route('**/turn', route => route.fulfill({ status: 503 }))
+  try {
+    const page = await context.newPage()
+    await createRoom(page, baseURL!)
+    await page.evaluate(() => {
+      const media = navigator.mediaDevices
+      const capture = media.getDisplayMedia.bind(media)
+      media.getDisplayMedia = async options => {
+        const stream = await capture(options)
+        ;(window as Window & { selectedShare?: MediaStream }).selectedShare = stream
+        return stream
+      }
+    })
+
+    const share = page.getByRole('button', { name: 'Share screen', exact: true })
+    await share.click()
+    await expect(page.locator('#status')).toContainText('Hide my IP address')
+    const tracks = await page.evaluate(() => (window as Window & { selectedShare?: MediaStream }).selectedShare?.getTracks()
+      .map(track => track.readyState))
+    expect(tracks).toEqual(['ended'])
+    await expect(page.locator('#deviceControls')).toBeHidden()
+    await expect(page.locator('#callToggle')).toHaveText('Start call')
+    await expect(share).toBeEnabled()
   } finally { await context.close() }
 })
