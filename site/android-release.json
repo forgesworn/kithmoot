@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.185",
-  "versionCode": 208,
+  "versionName": "0.6.186",
+  "versionCode": 209,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 72537628,
-  "apkSha256": "a9e4cc6559b49bace5a0ded5ca40c12dd57e61fc53bd2d8c60f551ee2ec6848e",
+  "apkSha256": "4847a442319ef877cf2fb8418bb8b3b39931514668470382e467123ba615c14b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.185-production.apk",
+  "downloadFilename": "kithmoot-0.6.186-production.apk",
   "releaseNotes": [
-    "Drag the divider between the Board and chat to resize them.",
-    "Hide chat and Show chat remember the split.",
-    "Export the board as readable JSON and choose where to save it."
+    "Put the keyboard away over the room board and it stays away, instead of coming back every 20 seconds.",
+    "Back saves a card title or description you were editing, as tapping elsewhere does."
   ]
 }
