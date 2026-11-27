@@ -7,7 +7,6 @@ import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { localIdentity } from '../src/identity.js'
 import { RoomAgent } from '../src/agent.js'
-import { NostrRelayPool } from '../src/relay-pool.js'
 import { CULT_REGISTRY } from '../app/src/nostr-packs.js'
 import { TEST_RELAY_WS, openProfileSettings, closeProfileSettings } from './browser.js'
 import { openRoomUrl } from './relays.js'
@@ -157,7 +156,6 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
   await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Rich chat', relays: [relay.href], iceUrls: [] })
-  const pool = new NostrRelayPool([TEST_RELAY_WS])
   let registryRequests = 0
   await context.route(CULT_REGISTRY, route => {
     registryRequests++; expect(route.request().headers()['authorization']).toBeUndefined()
@@ -165,14 +163,17 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
   })
   let addressRequests = 0
   await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => {
-    addressRequests++; return route.fulfill({ json: { names: { rowan: identity.pubkey } } })
+    addressRequests++; return route.abort()
   })
-  await pool.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', nip05: 'rowan@profiles.example' }) }, senderKey))
   const writer = await RoomAgent.join({ link, identity, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   try {
     const page = await context.newPage(); await signInNostrTestDevice(page, baseURL!)
     await openRoomUrl(page, link); await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await writer.session.setRoomProfile({ event: finalizeEvent({
+      kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ name: 'Rowan', nip05: 'rowan@profiles.example' }),
+    }, senderKey) })
     await writer.chat.send('Inline :600_spin: artwork')
     const row = page.locator('#chatLog .msg').filter({ hasText: 'Inline' }).first()
     // Receiving this local artwork is independent of membership and needs no registry request.
@@ -227,15 +228,13 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
     await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
-    await expect.poll(() => addressRequests).toBeGreaterThan(0)
     await row.getByRole('button', { name: 'View details for Rowan' }).dispatchEvent('click')
-    await expect(card.getByRole('button', { name: 'Copy NIP-05', exact: true })).toBeVisible()
-    await card.getByRole('button', { name: 'Copy NIP-05', exact: true }).click()
-    expect(await page.evaluate(() => (window as any).__copied)).toBe('rowan@profiles.example')
+    await expect(card.getByRole('button', { name: 'Copy NIP-05', exact: true })).toHaveCount(0)
+    expect(addressRequests).toBe(0)
     await page.screenshot({ path: test.info().outputPath('participant-card.png') })
     await card.getByRole('button', { name: 'Message privately', exact: true }).click()
     await expect(page.locator('#status')).toContainText('Private conversation with Rowan', { timeout: 30_000 })
-  } finally { await writer.leave(); pool.close(); await context.close() }
+  } finally { await writer.leave(); await context.close() }
 })
 
 test('built-in GIF and stickers arrive locally on another client without uploads or storage consent', async ({ browser, baseURL }) => {

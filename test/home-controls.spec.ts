@@ -38,7 +38,11 @@ test('the account avatar reveals the persona name on hover, focus and activation
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   const picture = 'https://avatars.example.test/work.png'
   try {
-    await context.route(picture, async route => route.fulfill({ contentType: 'image/png', body: await readFile('app/public/pwa-192x192.png') }))
+    await context.route(picture, async route => route.fulfill({
+      headers: { 'access-control-allow-origin': '*' },
+      contentType: 'image/png',
+      body: await readFile('app/public/pwa-192x192.png'),
+    }))
     await pool.publish(finalizeEvent({
       kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Work', picture }),
     }, secret))
@@ -46,7 +50,9 @@ test('the account avatar reveals the persona name on hover, focus and activation
     await signInAccount(page, baseURL!)
     await page.setViewportSize({ width: 1280, height: 800 })
     const avatar = page.getByRole('button', { name: 'Account menu for Work' })
-    await expect(avatar.locator('img')).toHaveAttribute('src', picture)
+    const image = avatar.locator('img')
+    await expect(image).toHaveAttribute('src', /^blob:/)
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
     const tooltip = avatar.locator('#railPersonaTip')
     await expect(tooltip).toHaveText('Work')
     await expect(tooltip).toBeHidden()
@@ -183,20 +189,18 @@ test('compact navigation keeps the account within reach in People, Boards and a 
   } finally { await context.close() }
 })
 
-test('private chat rows show the peer picture before opening and respect the profile switch', async ({ browser, baseURL }) => {
+test('private chat rows use initials even with public profile lookups enabled', async ({ browser, baseURL }) => {
   const { context, relay } = await device(browser, baseURL!)
   const selfKey = generateSecretKey(), peerKey = generateSecretKey()
   const self = getPublicKey(selfKey), peer = getPublicKey(peerKey)
   const secret = generateRoomSecret(), groupSecret = generateRoomSecret()
   const privateId = deriveRoom(secret).roomId, groupId = deriveRoom(groupSecret).roomId
   const picture = 'https://avatars.example.test/peer.png'
-  const ownPicture = 'https://avatars.example.test/self.png'
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   const requests: string[] = []
-  await context.route('https://avatars.example.test/**', async route => {
+  await context.route(picture, route => {
     requests.push(route.request().url())
-    expect(route.request().headers()['referer']).toBeUndefined()
-    await route.fulfill({ contentType: 'image/png', body: await readFile('app/public/pwa-192x192.png') })
+    return route.abort()
   })
   await context.addInitScript(({ key, rooms }) => {
     if (localStorage.getItem('test.avatar-seeded')) return
@@ -209,25 +213,25 @@ test('private chat rows show the peer picture before opening and respect the pro
     { id: groupId, value: { link: encodeJoinUrl(baseURL!, groupSecret, [relay]), name: 'Group', openedAt: Math.floor(Date.now()/1000), readAt: 0 } },
   ] })
   try {
-    for (const [key, url] of [[peerKey, picture], [selfKey, ownPicture]] as const) {
-      await pool.publish(finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now()/1000), content: JSON.stringify({ picture: url }) }, key))
-    }
+    await pool.publish(finalizeEvent({
+      kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ picture }),
+    }, peerKey))
     const page = await context.newPage()
     await page.goto(baseURL!)
-    const avatar = page.locator(`#roomList [data-room="${privateId}"] .roomAvatar img`)
-    await expect(avatar).toHaveAttribute('src', picture)
-    await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    const avatar = page.locator(`#roomList [data-room="${privateId}"] .roomAvatar`)
+    await expect(avatar).toHaveText('P')
+    await expect(avatar.locator('img')).toHaveCount(0)
     await expect(page.locator(`#roomList [data-room="${groupId}"] .roomAvatar img`)).toHaveCount(0)
     await page.reload()
-    await expect(avatar).toHaveAttribute('src', picture)
+    await expect(avatar).toHaveText('P')
     await openProfileSettings(page)
+    await expect(page.locator('#lookupProfiles')).toBeChecked()
     await page.locator('#lookupProfiles').uncheck()
-    await expect(avatar).toHaveCount(0)
-    const count = requests.filter(url => url === picture).length
     await page.reload()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
-    await expect(avatar).toHaveCount(0)
-    expect(requests.filter(url => url === picture)).toHaveLength(count)
+    await expect(avatar).toHaveText('P')
+    await expect(avatar.locator('img')).toHaveCount(0)
+    expect(requests).toEqual([])
   } finally { pool.close(); await context.close() }
 })
 

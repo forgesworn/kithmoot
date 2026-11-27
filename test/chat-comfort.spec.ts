@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
-import { NostrRelayPool } from '../src/relay-pool.js'
+import { logoDataUrl, logoFromCanvasEncoding } from '../src/logo-image.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
 import { TEST_RELAY_WS, openRoomSearch, openProfileSettings, closeProfileSettings } from './browser.js'
 
@@ -23,31 +24,29 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   const profileKey = generateSecretKey()
   const identity = localIdentity(profileKey)
-  const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const pictureURL = 'https://profiles.example/rowan.svg'
-  let addressRequests = 0
-  await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => {
-    addressRequests++; return route.fulfill({ json: { names: { rowan: identity.pubkey } } })
+  const photo = logoFromCanvasEncoding(await readFile('app/public/pwa-192x192.png'), 'image/png')
+  const profileRequests: string[] = []
+  await context.route('https://profiles.example/**', route => {
+    profileRequests.push(route.request().url())
+    return route.abort()
   })
-  let pictureRequests = 0
-  await context.route(pictureURL, route => { pictureRequests++; return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="teal"/></svg>' }) })
-  await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', picture: pictureURL, nip05: 'rowan@profiles.example' }) }, profileKey))
   const writer = await RoomAgent.join({ link, identity, relays: [TEST_RELAY_WS], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await writer.session.setRoomProfile({ photo, event: finalizeEvent({
+      kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ name: 'Rowan', picture: 'https://profiles.example/rowan.png', nip05: 'rowan@profiles.example' }),
+    }, profileKey) })
     await writer.chat.send('Where is the toolbox?')
     const row = page.locator('#chatLog .msg').filter({ hasText: 'Where is the toolbox?' })
     await expect(row.locator('.messageMeta time')).toHaveAttribute('datetime', /T/)
     await expect(row.locator('.messageMeta time')).toContainText(/\d{1,2}:\d{2}/)
-    await expect(row.locator('img.avatar')).toHaveAttribute('src', pictureURL)
-    // WebKit reports an SVG's rendered intrinsic size here. Verify decoding
-    // independently of that engine-specific size; the source is checked above.
+    await expect(row.locator('img.avatar')).toHaveAttribute('src', logoDataUrl(photo)!)
     await expect.poll(() => row.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0)).toBe(true)
-    expect(pictureRequests).toBeGreaterThan(0)
     await openProfileSettings(page); await page.locator('#lookupProfiles').uncheck(); await closeProfileSettings(page)
-    await expect(row.locator('.avatar.initials')).toBeVisible()
-    await expect(row.locator('img.avatar')).toHaveCount(0)
+    await expect(row.locator('img.avatar')).toHaveAttribute('src', logoDataUrl(photo)!)
     await page.locator('#chatInput').fill('before after')
     await page.locator('#chatInput').evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(7, 7))
     await page.locator('#emojiToggle').click(); await (await artworkSearch(page, 'Search emoji')).fill('head against wall')
@@ -78,20 +77,18 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     const person = row.locator('.reactionPerson').filter({ hasText: 'Rowan' })
     await expect(person).not.toContainText('npub1')
     await expect(person.locator('time')).toHaveAttribute('datetime', new Date(writer.chat.messages().find(m => m.reaction?.emoji === '❤️' && m.participant === identity.pubkey)!.sentAt * 1000).toISOString())
-    await expect(person.locator('img')).toHaveCount(0)
+    await expect(person.locator('img.avatar')).toHaveAttribute('src', logoDataUrl(photo)!)
     await expect(person.locator('.nip05')).toHaveCount(0)
-    await expect(person.locator('.avatar.initials')).toHaveText('R')
     await page.keyboard.press('Escape')
     await openProfileSettings(page); await page.locator('#lookupProfiles').check()
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
-    expect(addressRequests).toBe(0)
     await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
-    await expect(person.locator('.nip05')).toHaveText('rowan@profiles.example')
     await hearts.hover()
     await person.hover()
     await expect(row.getByRole('tooltip')).toBeVisible()
-    await expect(person.locator('img.avatar')).toHaveAttribute('src', pictureURL)
-    await expect.poll(() => person.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    await expect(person.locator('.nip05')).toHaveCount(0)
+    await expect(person.locator('img.avatar')).toHaveAttribute('src', logoDataUrl(photo)!)
+    expect(profileRequests).toEqual([])
     await expect(person).not.toContainText('npub1')
     await page.setViewportSize({ width: 320, height: 700 })
     await hearts.hover()
@@ -121,7 +118,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await page.setViewportSize({ width: 320, height: 700 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('chat-320.png') })
-  } finally { await writer.leave(); publisher.close(); await context.close() }
+  } finally { await writer.leave(); await context.close() }
 })
 
 test('busy conversations group senders and keep a stable, keyboard-accessible action panel through incoming edits', async ({ browser, baseURL }, testInfo) => {
