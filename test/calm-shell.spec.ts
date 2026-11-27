@@ -666,9 +666,12 @@ for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }
     const { context, page } = await visitor(browser, baseURL!, size, { touch })
     try {
       await joinRoom(page)
+      const screenCapture = await page.evaluate(() => typeof navigator.mediaDevices?.getDisplayMedia === 'function')
       const header = [
         ...(size.width < 900 ? ['backToRooms'] : []),
-        'roomIdentity', 'callToggle', 'roomBoardButton',
+        'roomIdentity', 'callToggle',
+        ...(screenCapture ? ['shareScreenFromChat'] : []),
+        'roomBoardButton',
         ...(size.width >= 600 ? ['chatSearch'] : []),
         'roomMenu',
       ]
