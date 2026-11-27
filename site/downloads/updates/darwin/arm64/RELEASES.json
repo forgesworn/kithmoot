@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.190",
+  "currentRelease": "0.1.191",
   "releases": [
     {
-      "version": "0.1.190",
+      "version": "0.1.191",
       "updateTo": {
-        "version": "0.1.190",
-        "name": "0.1.190",
+        "version": "0.1.191",
+        "name": "0.1.191",
         "pub_date": "2026-11-27T00:00:00Z",
-        "notes": "Relay-only calls can recover through an approved standby Spry relay if the primary stops responding. Add a standby under Calls → Relay server in Settings.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.190/KithMoot-0.1.190-mac-arm64.zip",
-        "sha256": "6fb09f9c45cd91700355cdb6dd7804eb2ef902e8ce79f7671b2a31c6c7a962c5",
-        "size": 199046588
+        "notes": "Choose a guest name or connect Nostr before asking to join. Share your own profile privately, change your guest name in the room and use the updated meeting host controls.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.191/KithMoot-0.1.191-mac-arm64.zip",
+        "sha256": "9af9c72979b071534fd1406be972ef8bff2cf284e4b5517050d9e414d3c7eae2",
+        "size": 200424296
       }
     }
   ]
