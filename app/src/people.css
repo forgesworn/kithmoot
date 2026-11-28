@@ -66,23 +66,6 @@
 }
 .peopleList .listSearch input:focus-visible { border-color: var(--focus); }
 
-.peopleList .peopleSearchNostr {
-  margin: 0 var(--s4) var(--s2);
-  min-height: 44px;
-}
-
-.peopleList .peopleProfiles {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: var(--s1) var(--s2);
-  margin: 0 var(--s4) var(--s2);
-  min-height: 44px;
-  cursor: pointer;
-}
-.peopleList .peopleProfiles input { width: auto; margin: 0; }
-.peopleList .peopleProfiles small { grid-column: 2; color: var(--muted); }
-
 .peopleList #peopleStatus {
   margin: 0 var(--s4) var(--s2);
 }
@@ -174,7 +157,7 @@
 }
 
 /* The same eight colours as a room's avatar in the list. */
-:is(.peopleList .personAvatar, .peopleNostrThreads .personAvatar, .peoplePane .contactAvatar, .peoplePane .contactRoomAvatar) {
+:is(.peopleList .personAvatar, .peoplePane .contactAvatar, .peoplePane .contactRoomAvatar) {
   position: relative;
   overflow: hidden;
   flex: 0 0 40px;
@@ -242,26 +225,16 @@
 
 .peoplePane {
   position: relative;
-  overflow-y: auto;
+  display: flex;
   min-height: 0;
+  overflow: hidden;
 }
 .peoplePane .peopleBlank {
   display: grid;
   place-items: center;
-  height: 100%;
+  flex: 1 1 auto;
   min-height: 12rem;
   color: var(--muted);
-}
-
-/* Back only where the contact covers the list: the shell's one-pane widths. */
-.peoplePane .peopleBack {
-  position: absolute;
-  top: var(--s2);
-  left: var(--s2);
-  display: none;
-}
-@media (max-width: 899px) {
-  .peoplePane .peopleBack { display: inline-flex; }
 }
 
 .peoplePane .contactCard {
@@ -299,29 +272,6 @@
 }
 .peoplePane .contactMeta .iconButton { width: 32px; min-width: 32px; height: 32px; }
 .peoplePane .contactMeta .iconButton svg.i { width: 16px; height: 16px; }
-
-.peoplePane .contactActions {
-  display: grid;
-  width: 100%;
-  max-width: 23rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--s2);
-  margin: var(--s5) 0 var(--s2);
-}
-.peoplePane .contactAction {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--s1);
-  margin: 0;
-  padding: var(--s3) var(--s1);
-  min-height: 64px;
-  background: var(--surface);
-  border-radius: var(--r-m);
-  font-weight: 400;
-  font-size: var(--fs-1);
-}
-.peoplePane .contactAction:hover:not(:disabled) { background: var(--selected); }
 
 .peoplePane #peopleActionNote {
   min-height: 1.35em;
@@ -398,9 +348,113 @@
 
 @media (forced-colors: active) {
   .peopleList .personRow button[aria-current='true'] { outline: 2px solid Highlight; }
-  .peoplePane .contactAction { border: 1px solid ButtonText; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   #peopleAddMenu { transition: none; }
 }
+
+/* The list: a row is a name and a time over a line and an unread pill. */
+.peopleList .peopleInboxLine { margin: 0 var(--s4) var(--s2); }
+.peopleList .peopleInboxLine .quiet,
+.peopleList .peopleSection .peopleTurnOn { min-height: 44px; margin: 0 var(--s2); }
+.peopleList .peopleSection .peopleTurnOn[hidden] { display: none; }
+.peopleList .peopleSearchRow button {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  margin: 0;
+  padding: var(--s2);
+  min-height: 56px;
+  background: transparent;
+  border-radius: var(--r-m);
+  font-weight: 400;
+  text-align: left;
+}
+.peopleList .peopleSearchRow button:hover:not(:disabled) { background: var(--surface); }
+.peopleList .peopleSearchRow svg.i { flex: 0 0 40px; width: 20px; height: 20px; color: var(--muted); }
+.peopleList .personTop,
+.peopleList .personBottom { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); min-width: 0; }
+.peopleList .personText { flex: 1 1 auto; }
+.peopleList .personTime { flex: none; font-size: var(--fs-1); color: var(--muted); }
+.peopleList .personUnread {
+  flex: none;
+  min-width: 1.4rem;
+  padding: 0 .4rem;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1.4rem;
+  text-align: center;
+}
+.peopleList .personSub { min-width: 0; }
+
+/* The pane: header, thread, and Contact info beside or over it. */
+.peoplePane .peopleFrame { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.peoplePane .peopleMain { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+.peoplePane .peopleHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 56px;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.peoplePane .peopleBack { display: none; }
+@media (max-width: 899px) { .peoplePane .peopleBack { display: inline-flex; } }
+.peoplePane .peopleHeaderAvatar {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: var(--fs-3);
+  color: #fff;
+  background: var(--avatar, #0e7fa3);
+}
+.peoplePane .peopleHeaderAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.peoplePane .peopleHeaderWords { flex: 1 1 auto; min-width: 0; }
+.peoplePane .peopleHeaderWords h2 { margin: 0; font-size: var(--fs-3); line-height: var(--lh-3); }
+.peoplePane .peopleHeaderName {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.peoplePane .peopleHeaderSub { margin: 0; font-size: var(--fs-1); line-height: var(--lh-1); color: var(--muted); }
+.peoplePane .peopleHeaderActions { display: flex; flex: none; align-items: center; gap: var(--s1); }
+.peoplePane .peopleHeaderSub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* On a phone the two call buttons move into More, so the name keeps its room. */
+@media (max-width: 599px) { .peoplePane .peopleCall { display: none; } }
+
+/* Contact info: a side panel at 1280 and wider, else it replaces the thread. */
+.peoplePane .peopleInfo { flex: 1 1 auto; min-width: 0; overflow-y: auto; border-inline-start: 1px solid var(--line); }
+.peoplePane .peopleFrame[data-info='open'] > .peopleMain { display: none; }
+.peoplePane .peopleInfoBack { margin: var(--s2) var(--s3) 0; min-height: 44px; }
+@media (min-width: 1280px) {
+  .peoplePane .peopleFrame[data-info='open'] > .peopleMain { display: flex; }
+  .peoplePane .peopleInfo { flex: 0 0 340px; }
+  .peoplePane .peopleInfoBack { display: none; }
+}
+
+#peopleInviteMenu .menuHeading { margin: 0; padding: var(--s2) var(--s3); font-weight: 600; }
+#peopleInviteMenu .menuNote { margin: 0; padding: var(--s2) var(--s3); max-width: 20rem; }
+#peopleInviteMenu .menuLine { display: block; font-size: var(--fs-1); line-height: var(--lh-1); color: var(--muted); font-weight: 400; }
+#peopleInviteMenu [role='menuitem'] { flex-direction: column; align-items: flex-start; }

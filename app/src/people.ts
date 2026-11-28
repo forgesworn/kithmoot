@@ -4,14 +4,18 @@ import { icon, type IconName } from './icons.js'
 import { avatarInitial, avatarSlot } from './room-sections.js'
 import { setPeoplePicture } from './people-pictures.js'
 import { peopleSearchKey, peopleSearchQuery, type PeopleSearchResult } from './people-search.js'
+import { menuGroups, menuItem, wireMenu, type MenuHandle } from './menu.js'
+import { PeopleThreadView, timeWords, type ThreadHost, type ThreadSubject } from './people-thread.js'
 
 /**
  * People: the signed-in person's contacts, and the people they follow on
- * Nostr, with Message, Voice, Video and Invite on each.
+ * Nostr, and the Nostr conversations with them, as one list. Choosing a
+ * person opens their thread in the main pane (people-thread.ts); Contact info
+ * is a page, or at wide widths a side panel, over the same pane.
  *
  * Only drawing lives here. Where a person comes from (a Signet grant, a
  * contact card, the account's follow list), whether they may be messaged,
- * and what Message or Voice actually do all come in from `main.ts`, so this
+ * and what Invite or a call actually do all come in from `main.ts`, so this
  * file holds no keys and opens no sockets. It fills two containers the app
  * shell owns: `#peopleList` in the list column and `#peoplePane` in the main
  * pane.
@@ -33,6 +37,11 @@ export interface Person {
   chatName?: string
   /** Unread count of an existing Nostr conversation, including zero. */
   unread?: number
+  /** The newest message of their Nostr thread, and where it sits in the inbox's order. */
+  last?: { at: number; text: string; mine: boolean }
+  rank?: number
+  /** Somebody not in contacts or follows who has written first (P6). */
+  request?: boolean
 }
 
 export interface SharedRoom {
@@ -57,17 +66,24 @@ export interface PeopleModel {
   contactsNote?: string
 }
 
+/** What the Invite menu offers for one person, and why not when it cannot. */
+export interface InviteOptions {
+  privateChat: { enabled: boolean; existing: boolean; reason?: string }
+  room: { enabled: boolean; reason?: string }
+}
+
 export interface PeopleActions {
   profileSettings(): { enabled: boolean; available: boolean }
   setPublicProfiles(enabled: boolean): void
-  openProfileSettings(opener: HTMLElement, fallback: HTMLElement): void
-  /** Undefined when Message, Voice and Video can be used; otherwise why not. */
+  /** Undefined when Voice and Video can be used; otherwise why not. */
   blockedReason(pubkey: string): string | undefined
-  message(person: Person): Promise<string | undefined>
-  inviteToNodeChat(person: Person): Promise<string | undefined>
   call(person: Person, video: boolean): Promise<string | undefined>
+  inviteOptions(person: Person): InviteOptions
+  /** Open the saved private chat, else start one. `note` runs just before a
+   *  new invitation goes, and not when an existing chat is only opened. */
+  invitePrivateChat(person: Person, note: () => Promise<void>): Promise<string | undefined>
   /** Open the private chat, then choose a room to invite them to. */
-  invite(person: Person): Promise<string | undefined>
+  invite(person: Person, note: () => Promise<void>): Promise<string | undefined>
   /** The private chat already open with this person, if there is one. */
   privateChat(pubkey: string): { label: string; open(): void } | undefined
   /** Whether this person's key was checked, and the line that says so. */
@@ -87,12 +103,12 @@ export interface PeopleActions {
   canSearchNostr(): boolean
   searchNostr(query: string, signal: AbortSignal): Promise<PeopleSearchResult[]>
   isBlocked(pubkey: string): boolean
-  canMessageOnNostr(pubkey: string): boolean
-  messageOnNostr(pubkey: string, opener: HTMLElement): void
+  /** The state of the Nostr inbox, as one line over the list. */
+  inboxLine(): { text: string; action?: { label: string; run(): void } } | undefined
+  thread: ThreadHost
   pasteCard(opener: HTMLElement): void
   linkSignet(opener: HTMLElement): void
   showMyCard(opener: HTMLElement): void
-  openNostrMessages(opener: HTMLElement): void
   /** At phone width, show the contact over the list; elsewhere a no-op. */
   openDetail(): void
   closeDetail(): void
@@ -101,6 +117,7 @@ export interface PeopleActions {
 /** Names are asked for in batches of this many, so a long follow list is
  *  several small requests rather than one huge one. */
 const WANT_BATCH = 100
+const SEARCH_MIN_GAP = 1_500
 
 export class PeopleView {
   readonly #list: HTMLElement
@@ -108,22 +125,25 @@ export class PeopleView {
   readonly #model: () => PeopleModel
   readonly #actions: PeopleActions
   readonly #query: HTMLInputElement
-  readonly #searchButton: HTMLButtonElement
-  readonly #profiles: HTMLInputElement
-  readonly #followProfileSettings: HTMLButtonElement
+  readonly #thread: PeopleThreadView
   #searchRequest?: AbortController
   #searchResults: PeopleSearchResult[] = []
   #searchNote = ''
   #lastSearch = -Infinity
   readonly #rows: HTMLUListElement
   readonly #status: HTMLElement
+  readonly #line: HTMLElement
   readonly #empty: HTMLElement
   readonly #menu: HTMLElement
   readonly #add: HTMLButtonElement
+  readonly #title: HTMLElement
   #selected: string | undefined
+  #info = false
   #busy = false
   #note = ''
   #wanted = new Set<string>()
+  #inviteMenu?: { handle: MenuHandle; menu: HTMLElement }
+  #moreMenu?: { handle: MenuHandle; menu: HTMLElement }
   /** What the pane last drew, so a redraw that changes nothing leaves its
    *  buttons in place: a profile arriving mid-click must not swap them. */
   #painted = ''
@@ -136,16 +156,18 @@ export class PeopleView {
     this.#pane = pane
     this.#model = model
     this.#actions = actions
+    this.#thread = new PeopleThreadView(actions.thread)
     list.classList.add('peopleList')
     pane.classList.add('peoplePane')
+    pane.addEventListener('thread:back', () => this.#back())
 
     const head = document.createElement('div')
     head.id = 'peopleListHead'
     head.className = 'listHead'
-    const title = document.createElement('h2')
-    title.id = 'peopleTitle'
-    title.tabIndex = -1
-    title.textContent = 'People'
+    this.#title = document.createElement('h2')
+    this.#title.id = 'peopleTitle'
+    this.#title.tabIndex = -1
+    this.#title.textContent = 'People'
     this.#add = document.createElement('button')
     this.#add.type = 'button'
     this.#add.id = 'peopleAdd'
@@ -155,30 +177,9 @@ export class PeopleView {
     this.#add.setAttribute('aria-haspopup', 'menu')
     this.#add.setAttribute('aria-expanded', 'false')
     this.#add.append(icon('personAdd'))
-    head.append(title, this.#add)
+    head.append(this.#title, this.#add)
 
     this.#menu = this.#buildMenu()
-
-    const profiles = document.createElement('label')
-    profiles.className = 'peopleProfiles'
-    this.#profiles = document.createElement('input')
-    this.#profiles.id = 'peoplePublicProfiles'
-    this.#profiles.type = 'checkbox'
-    this.#profiles.setAttribute('role', 'switch')
-    this.#profiles.addEventListener('change', () => this.#actions.setPublicProfiles(this.#profiles.checked))
-    const profilesText = document.createElement('span')
-    profilesText.id = 'peopleProfilesLabel'
-    profilesText.textContent = 'Public profiles'
-    this.#profiles.setAttribute('aria-labelledby', profilesText.id)
-    const profilesNote = document.createElement('small')
-    profilesNote.id = 'peopleProfilesNote'
-    profilesNote.textContent = 'Show who you follow, names and pictures. Uses public relays and picture hosts.'
-    this.#profiles.setAttribute('aria-describedby', profilesNote.id)
-    profiles.append(this.#profiles, profilesText, profilesNote)
-    this.#followProfileSettings = this.#textButton('Public profile settings', opener => this.#actions.openProfileSettings(opener, title))
-    this.#followProfileSettings.classList.add('linkish')
-    this.#followProfileSettings.setAttribute('aria-haspopup', 'dialog')
-    this.#followProfileSettings.setAttribute('aria-controls', 'profileSettings')
 
     const form = document.createElement('form')
     const label = document.createElement('label')
@@ -191,20 +192,22 @@ export class PeopleView {
     this.#query.id = 'peopleQuery'
     this.#query.type = 'search'
     this.#query.autocomplete = 'off'
-    this.#query.placeholder = 'Find a person'
+    this.#query.placeholder = 'Name or npub'
     this.#query.addEventListener('input', () => { this.#order = undefined; this.#note = ''; this.resetSearch(); this.render() })
-    search.append(icon('search'), this.#query)
-    this.#searchButton = document.createElement('button')
-    this.#searchButton.type = 'submit'
-    this.#searchButton.className = 'quiet peopleSearchNostr'
-    this.#searchButton.textContent = 'Search Nostr'
-    this.#searchButton.hidden = true
-    form.append(label, search, this.#searchButton)
-    form.addEventListener('submit', event => {
-      event.preventDefault()
-      if (event.isTrusted) void this.#searchNostr()
+    // Enter opens the one person the box has narrowed the list to (a pasted key, a unique name).
+    this.#query.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || !event.isTrusted || event.isComposing) return
+      const only = this.#rows.querySelectorAll<HTMLButtonElement>('li[data-person] button[data-action="person"]')
+      if (only.length === 1) { event.preventDefault(); only[0].click() }
     })
+    search.append(icon('search'), this.#query)
+    form.append(label, search)
+    form.addEventListener('submit', event => event.preventDefault())
 
+    this.#line = document.createElement('p')
+    this.#line.id = 'peopleInboxLine'
+    this.#line.className = 'note peopleInboxLine'
+    this.#line.setAttribute('role', 'status')
     this.#status = document.createElement('p')
     this.#status.id = 'peopleStatus'
     this.#status.className = 'note'
@@ -227,17 +230,19 @@ export class PeopleView {
     const link = this.#textButton('Link Signet contacts', opener => this.#actions.linkSignet(opener))
     this.#empty.append(none, addCard, link)
 
-    const messages = this.#textButton('Nostr messages', opener => this.#actions.openNostrMessages(opener))
-    messages.id = 'peopleNostrOpen'
-    messages.className = 'quiet peopleNostrOpen'
-    messages.setAttribute('aria-haspopup', 'dialog')
-    list.replaceChildren(head, this.#menu, profiles, messages, form, this.#status, this.#rows, this.#empty)
+    list.replaceChildren(head, this.#menu, form, this.#line, this.#status, this.#rows, this.#empty)
     this.#add.addEventListener('click', () => this.#openMenu(this.#add))
     this.#paintPane()
   }
 
   /** The person on show, if any. */
   get selected(): string | undefined { return this.#selected }
+
+  /** Redraw only the thread, when the inbox or an engine has changed. */
+  reconcileThread(): void { if (this.#selected) this.#paintPane() }
+
+  /** Engines close when People closes or the identity changes. */
+  closeThreads(): void { this.#thread.close() }
 
   resetSearch(): void {
     this.#searchRequest?.abort()
@@ -249,7 +254,7 @@ export class PeopleView {
   async #searchNostr(): Promise<void> {
     const query = peopleSearchQuery(this.#query.value)
     if (!query || !this.#actions.canSearchNostr() || this.#searchRequest) return
-    if (performance.now() - this.#lastSearch < 1_500) {
+    if (performance.now() - this.#lastSearch < SEARCH_MIN_GAP) {
       this.#searchNote = 'Wait a moment and try again.'
       this.render()
       return
@@ -280,13 +285,19 @@ export class PeopleView {
   render(): void {
     const model = this.#model()
     const profiles = this.#actions.profileSettings()
-    this.#profiles.checked = profiles.enabled
-    this.#profiles.disabled = !profiles.available
     const query = this.#query.value.trim().toLocaleLowerCase()
-    this.#followProfileSettings.hidden = !!query || model.followStatus !== 'off' || !profiles.available
     if (!this.#actions.canSearchNostr()) this.resetSearch()
-    this.#searchButton.hidden = !peopleSearchQuery(query) || !this.#actions.canSearchNostr()
-    this.#searchButton.disabled = !!this.#searchRequest
+    const line = this.#actions.inboxLine()
+    this.#line.replaceChildren()
+    this.#line.hidden = !line
+    if (line) {
+      this.#line.append(document.createTextNode(line.text))
+      if (line.action) {
+        const run = line.action.run
+        const button = this.#textButton(line.action.label, () => run())
+        this.#line.append(' ', button)
+      }
+    }
     const local = [...model.contacts, ...model.following, ...model.conversations]
     const localKeys = new Set(local.map(person => person.pubkey))
     const publicPeople = this.#publicPeople(), publicKeys = new Set(publicPeople.map(person => person.pubkey))
@@ -298,12 +309,16 @@ export class PeopleView {
       if (!a.name !== !b.name) return a.name ? -1 : 1
       return (a.name ?? a.pubkey).localeCompare(b.name ?? b.pubkey, undefined, { sensitivity: 'base' })
     }
-    const sections: [string, Person[]][] = [
-      ['Contacts', model.contacts.filter(matches).sort(byName)],
-      ['Following', model.following.filter(matches).sort(byName)],
-      ['Conversations', model.conversations.filter(matches)],
-      ['Nostr results', publicPeople.filter(person => !localKeys.has(person.pubkey))],
-    ]
+    // A person is listed once, and Messages claims them first (C5, spec 5.2).
+    const claimed = new Set<string>()
+    const claim = (people: Person[]): Person[] => people.filter(person => matches(person) && !claimed.has(person.pubkey)).map(person => { claimed.add(person.pubkey); return person })
+    const messagePeople = local.filter(person => person.last)
+    const messages = claim(messagePeople.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)))
+    const contacts = claim([...model.contacts, ...model.conversations, ...model.following.filter(person => person.chatName)].sort(byName))
+    const following = claim(model.following.sort(byName))
+    const pasted: Person[] = exactKey && !localKeys.has(exactKey) && !this.#actions.isBlocked(exactKey) ? [{ pubkey: exactKey, section: 'nostr' }] : []
+    const found = claim([...pasted, ...publicPeople.filter(person => !localKeys.has(person.pubkey))])
+    const sections: [string, Person[]][] = [['Messages', messages], ['Contacts', contacts], ['Following', following], ['On Nostr', found]]
     // Names for everyone listed, a batch at a time. The follow list is
     // public already, so asking about its people tells the relays nothing
     // new; the public profiles switch decides whether anything is asked.
@@ -328,6 +343,10 @@ export class PeopleView {
     const previous = new Map([...this.#rows.querySelectorAll<HTMLLIElement>('li[data-person]')].map(row => [row.dataset.person!, row]))
     const heads = new Map([...this.#rows.querySelectorAll<HTMLLIElement>('li[data-section]')].map(row => [row.dataset.section!, row]))
     const children: HTMLLIElement[] = []
+    // The search row sits first, under the box, once there is a name to ask for.
+    const searchQuery = peopleSearchQuery(query), askable = !!searchQuery && !exactKey && this.#actions.canSearchNostr()
+    if (askable) children.push(this.#searchRow(searchQuery!, previous))
+    const now = Date.now()
     for (const [name, list] of sections) {
       const followingNote = name === 'Following' ? this.#followingNote(model, query, profiles.available) : undefined
       if (!list.length && !followingNote) continue
@@ -340,12 +359,18 @@ export class PeopleView {
       note.className = 'note'
       note.textContent = followingNote ?? ''
       note.hidden = !followingNote
-      if (!head.childElementCount) {
-        head.append(heading, note)
-        if (name === 'Following') head.append(this.#followProfileSettings)
+      if (!head.childElementCount) head.append(heading, note)
+      if (name === 'Following') {
+        let turnOn = head.querySelector<HTMLButtonElement>('button.peopleTurnOn')
+        if (!turnOn) {
+          turnOn = this.#textButton('Turn on public profiles', () => this.#actions.setPublicProfiles(true))
+          turnOn.classList.add('peopleTurnOn')
+          head.append(turnOn)
+        }
+        turnOn.hidden = !(model.followStatus === 'off' && profiles.available && !query)
       }
       children.push(head)
-      for (const person of list) children.push(this.#row(person, previous.get(person.pubkey)))
+      for (const person of list) children.push(this.#row(person, previous.get(person.pubkey), now))
     }
     const focused = document.activeElement
     for (const row of [...this.#rows.children]) if (!children.includes(row as HTMLLIElement)) row.remove()
@@ -359,18 +384,54 @@ export class PeopleView {
 
     this.#empty.hidden = !!query || local.length > 0 || model.followStatus === 'loading'
     this.#status.textContent = this.#note || this.#searchNote
-      || (query && !people.length ? 'No matching contacts or conversations.' : model.contactsNote ?? '')
+      || (query && !people.length && !askable ? 'No matching contacts or conversations.' : model.contactsNote ?? '')
     this.#status.hidden = !this.#status.textContent
     if (this.#selected && !people.some(person => person.pubkey === this.#selected)
-      && !localKeys.has(this.#selected)) this.#selected = undefined
+      && !localKeys.has(this.#selected)) { this.#selected = undefined; this.#info = false }
     this.#paintPane()
   }
 
   /** Show this person (or nobody). */
   select(pubkey: string | undefined): void {
+    if (pubkey !== this.#selected) this.#info = false
     this.#selected = pubkey
     this.#note = ''
     this.render()
+  }
+
+  /** Open a thread for a key that may not be listed yet, as if its npub had been pasted. */
+  openKey(pubkey: string): void {
+    this.#query.value = npubEncode(pubkey)
+    this.select(pubkey)
+    this.#actions.openDetail()
+  }
+
+  /** Send the one-line note ahead of an invitation, in this person's thread. */
+  async sendNote(person: Person, text: string): Promise<void> {
+    await this.#thread.sendNote(this.#subject(person), text)
+  }
+
+  #searchRow(query: string, previous: Map<string, HTMLLIElement>): HTMLLIElement {
+    const row = document.createElement('li')
+    row.className = 'peopleSearchRow'
+    void previous
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.id = 'peopleSearchNostr'
+    button.disabled = !!this.#searchRequest
+    const words = document.createElement('span')
+    words.className = 'personName'
+    words.textContent = `Search Nostr for “${query}”`
+    const sub = document.createElement('span')
+    sub.className = 'personSub'
+    sub.textContent = 'Asks relay.ditto.pub'
+    const text = document.createElement('span')
+    text.className = 'personText'
+    text.append(words, sub)
+    button.append(icon('search'), text)
+    button.addEventListener('click', event => { if (event.isTrusted) void this.#searchNostr() })
+    row.append(button)
+    return row
   }
 
   #followingNote(model: PeopleModel, query: string, profilesAvailable: boolean): string | undefined {
@@ -386,7 +447,7 @@ export class PeopleView {
     return this.#rows.contains(document.activeElement) || this.#rows.matches(':hover')
   }
 
-  #row(person: Person, existing: HTMLLIElement | undefined): HTMLLIElement {
+  #row(person: Person, existing: HTMLLIElement | undefined, now: number): HTMLLIElement {
     const row = existing ?? document.createElement('li')
     row.dataset.person = person.pubkey
     row.className = 'personRow'
@@ -396,15 +457,20 @@ export class PeopleView {
     const chosen = person.pubkey === this.#selected
     if (chosen) button.setAttribute('aria-current', 'true')
     else button.removeAttribute('aria-current')
-    const name = person.name ?? shortNpub(person.pubkey)
-    const sub = subline(person)
-    button.setAttribute('aria-label', [name, sub].filter(Boolean).join(', '))
+    const name = person.request ? shortNpub(person.pubkey) : person.name ?? shortNpub(person.pubkey)
+    const when = person.last ? rowTime(person.last.at, now) : ''
+    const sub = person.request ? 'Message request' : person.last ? preview(person) : subline(person)
+    const unread = person.unread ?? 0
+    button.setAttribute('aria-label', person.request ? [name, 'message request', when].filter(Boolean).join(', ')
+      : [name, unread ? `${unread} unread` : '', when, sub].filter(Boolean).join(', '))
     button.onclick = () => {
       this.select(person.pubkey)
       this.#actions.openDetail()
     }
     const text = document.createElement('span')
     text.className = 'personText'
+    const top = document.createElement('span')
+    top.className = 'personTop'
     const title = document.createElement('span')
     title.className = 'personName'
     // The words in a span of their own: an ellipsis needs a block to end, and
@@ -414,17 +480,34 @@ export class PeopleView {
     words.textContent = name
     title.append(words)
     if (person.checked) title.append(checkMark())
-    text.append(title)
-    if (sub) {
+    top.append(title)
+    if (when) {
+      const time = document.createElement('span')
+      time.className = 'personTime'
+      time.textContent = when
+      top.append(time)
+    }
+    text.append(top)
+    if (sub || unread) {
+      const bottom = document.createElement('span')
+      bottom.className = 'personBottom'
       const second = document.createElement('span')
       second.className = 'personSub'
       second.textContent = sub
-      text.append(second)
+      bottom.append(second)
+      if (unread) {
+        const pill = document.createElement('span')
+        pill.className = 'personUnread'
+        pill.setAttribute('aria-hidden', 'true')
+        pill.textContent = unread > 99 ? '99+' : String(unread)
+        bottom.append(pill)
+      }
+      text.append(bottom)
     }
-    const drawn = JSON.stringify([name, sub, person.picture, person.checked])
+    const drawn = JSON.stringify([name, sub, when, unread, person.picture, person.checked, person.request])
     if (button.dataset.drawn !== drawn) {
       button.dataset.drawn = drawn
-      button.replaceChildren(avatar(person, 'personAvatar'), text)
+      button.replaceChildren(person.request ? personAvatar(person.pubkey, undefined, undefined, 'personAvatar') : avatar(person, 'personAvatar'), text)
     }
     if (!row.contains(button)) row.append(button)
     return row
@@ -444,20 +527,58 @@ export class PeopleView {
     buttons[next]!.focus()
   }
 
-  #paintPane(): void {
+  #back(): void {
+    const key = this.#selected
+    this.#actions.closeDetail()
+    if (key) this.#rows.querySelector<HTMLButtonElement>(`li[data-person="${key}"] button`)?.focus()
+  }
+
+  #find(pubkey: string | undefined): Person | undefined {
     const model = this.#model()
-    const person = [...model.contacts, ...model.following, ...model.conversations, ...this.#publicPeople()].find(entry => entry.pubkey === this.#selected)
+    return [...model.contacts, ...model.following, ...model.conversations, ...this.#publicPeople()].find(entry => entry.pubkey === pubkey)
+      ?? (pubkey && peopleSearchKey(this.#query.value.trim()) === pubkey ? { pubkey, section: 'nostr' as const } : undefined)
+  }
+
+  #subject(person: Person): ThreadSubject {
+    const name = person.request ? shortNpub(person.pubkey) : person.name ?? shortNpub(person.pubkey)
+    return {
+      pubkey: person.pubkey, name, ...(person.request || !person.picture ? {} : { picture: person.picture }),
+      ...(person.address && !person.request ? { address: person.address } : {}),
+      request: !!person.request, hasChat: !!this.#actions.privateChat(person.pubkey),
+      openChat: () => this.#actions.privateChat(person.pubkey)?.open(),
+      invite: opener => this.#openInvite(person, opener),
+      info: opener => { this.#info = true; this.#paintPane(); void opener; this.#pane.querySelector<HTMLElement>('#peopleInfoTitle')?.focus() },
+      block: () => this.#block(person),
+    }
+  }
+
+  #block(person: Person): void {
+    const name = person.name ?? shortNpub(person.pubkey)
+    try {
+      this.#actions.block(person.pubkey)
+      // They leave the list, so the page closes and says where they went.
+      this.#note = `${person.request ? shortNpub(person.pubkey) : name} is blocked on this device. Settings › Privacy lists who you have blocked.`
+      this.#selected = undefined
+      this.#actions.closeDetail()
+    } catch (error) {
+      this.#note = error instanceof Error ? error.message : String(error)
+    }
+    this.render()
+  }
+
+  #paintPane(): void {
+    const person = this.#find(this.#selected)
     const shared = person ? this.#actions.sharedRooms(person.pubkey) : []
     const sent = person ? this.#actions.sentInvitations(person.pubkey) : []
     const check = person ? this.#actions.check(person) : undefined
     // Only what is drawn goes in: a day word changes at midnight, not every tick.
     const today = Date.now()
-    const onNostr = !!person && this.#actions.canMessageOnNostr(person.pubkey)
-    const shown = person ? JSON.stringify([person, onNostr, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
+    const key = person ? JSON.stringify([person.pubkey, person.name, person.picture, person.address, person.request, person.checked, person.tier, this.#info,
+      this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
       check, shared.map(room => [room.roomId, room.label]), sent.map(invite => [invite.roomId, invite.label, invite.joined, invite.at === undefined ? '' : dayWords(invite.at, today)])]) : 'none'
-    if (shown === this.#painted && this.#pane.childElementCount) return
-    this.#painted = shown
     if (!person) {
+      this.#painted = key
+      if (this.#pane.querySelector('.peopleBlank')) return
       const blank = document.createElement('div')
       blank.className = 'peopleBlank'
       const line = document.createElement('p')
@@ -466,88 +587,193 @@ export class PeopleView {
       this.#pane.replaceChildren(blank)
       return
     }
-    const name = person.name ?? shortNpub(person.pubkey)
+    if (key === this.#painted && this.#pane.contains(this.#thread.element)) { this.#thread.show(this.#subject(person)); return }
+    this.#painted = key
+    const subject = this.#subject(person)
+    const frame = document.createElement('div')
+    frame.className = 'peopleFrame'
+    frame.dataset.info = this.#info ? 'open' : 'closed'
+    const main = document.createElement('div')
+    main.className = 'peopleMain'
+    main.append(this.#header(person, subject), this.#thread.element)
+    frame.append(main)
+    if (this.#info) frame.append(this.#infoPanel(person, subject, shared, sent, check))
+    const focusInside = this.#pane.contains(document.activeElement) ? document.activeElement : undefined
+    const keep = focusInside === this.#thread.field
+    this.#pane.replaceChildren(frame)
+    this.#thread.show(subject)
+    if (keep) this.#thread.field.focus({ preventScroll: true })
+  }
+
+  #header(person: Person, subject: ThreadSubject): HTMLElement {
+    const header = document.createElement('header')
+    header.className = 'peopleHeader'
+    const iconButton = (label: string, glyph: IconName, run: (button: HTMLButtonElement) => void, extra = '') => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `iconButton ${extra}`.trim()
+      button.setAttribute('aria-label', label)
+      button.dataset.tip = label
+      button.append(icon(glyph))
+      button.addEventListener('click', event => { if (event.isTrusted) run(button) })
+      return button
+    }
+    const back = iconButton('Back to people', 'back', () => this.#back(), 'peopleBack barBack')
+    const name = document.createElement('h2')
+    name.id = 'peoplePaneTitle'
+    name.tabIndex = -1
+    const nameButton = document.createElement('button')
+    nameButton.type = 'button'
+    nameButton.className = 'peopleHeaderName'
+    nameButton.textContent = subject.name
+    nameButton.addEventListener('click', event => { if (event.isTrusted) subject.info(nameButton) })
+    name.append(nameButton)
+    const sub = document.createElement('p')
+    sub.className = 'peopleHeaderSub'
+    sub.textContent = person.request ? 'Message request' : 'Nostr messages'
+    const words = document.createElement('div')
+    words.className = 'peopleHeaderWords'
+    words.append(name, sub)
+    const chat = this.#actions.privateChat(person.pubkey)
+    const callable = !!chat || !this.#actions.blockedReason(person.pubkey)
+    const actions = document.createElement('div')
+    actions.className = 'peopleHeaderActions'
+    if (callable) {
+      actions.append(iconButton('Voice call', 'phone', () => this.#run(this.#actions.call(person, false)), 'peopleCall'),
+        iconButton('Video call', 'video', () => this.#run(this.#actions.call(person, true)), 'peopleCall'))
+    }
+    const invite = iconButton('Invite to KithMoot', 'personAdd', button => this.#openInvite(person, button), 'peopleInviteButton')
+    invite.id = 'peopleInvite'
+    const more = iconButton('More', 'moreVert', () => {}, 'peopleMore')
+    more.id = 'peopleMore'
+    actions.append(invite, more)
+    header.append(back, personAvatar(person.pubkey, person.request ? undefined : person.name, person.request ? undefined : person.picture, 'peopleHeaderAvatar'), words, actions)
+    this.#wireMore(person, subject, more, callable, chat)
+    return header
+  }
+
+  #run(promise: Promise<string | undefined>): void {
+    this.#busy = true
+    void promise.then(note => { this.#note = note ?? '' }, error => { this.#note = error instanceof Error ? error.message : String(error) })
+      .finally(() => { this.#busy = false; this.render() })
+  }
+
+  #wireMore(person: Person, subject: ThreadSubject, opener: HTMLButtonElement, callable: boolean, chat: { label: string; open(): void } | undefined): void {
+    const menu = document.createElement('div')
+    menu.id = 'peopleMoreMenu'
+    menu.setAttribute('aria-label', `More for ${subject.name}`)
+    document.getElementById('peopleMoreMenu')?.remove()
+    document.body.append(menu)
+    const trusted = trustedClicks(menu)
+    const handle = wireMenu(opener, menu, { beforeOpen: () => {
+      const compact = window.matchMedia('(max-width: 599px)').matches
+      const huge = document.documentElement.dataset.textSize === 'huge'
+      const reason = this.#actions.blockedReason(person.pubkey)
+      menuGroups(menu, [
+        m => {
+          menuItem(m, 'Contact info', () => { if (trusted()) subject.info(opener) }, { action: 'info' })
+          if (chat) menuItem(m, 'Open private chat', () => { if (trusted()) chat.open() }, { action: 'open-chat' })
+          if ((huge || compact) && callable) {
+            menuItem(m, 'Voice call', () => { if (trusted()) this.#run(this.#actions.call(person, false)) }, { action: 'voice' })
+            menuItem(m, 'Video call', () => { if (trusted()) this.#run(this.#actions.call(person, true)) }, { action: 'video' })
+          }
+          if (compact) menuItem(m, 'Invite to KithMoot', () => { if (trusted()) this.#openInvite(person, opener) }, { action: 'invite' })
+        },
+        m => {
+          const words = menuItem(m, 'Check words together', () => {
+            if (trusted()) this.#run(this.#actions.checkWords(person))
+          }, { action: 'check-words' })
+          if (reason) { words.disabled = true; words.title = reason }
+          menuItem(m, 'Copy public key', () => {
+            if (!trusted()) return
+            void navigator.clipboard?.writeText(npubEncode(person.pubkey)).then(() => { this.#say('Public key copied.') }, () => { this.#say('Copying is not allowed here.') })
+          }, { action: 'copy-key' })
+        },
+        m => { menuItem(m, `Block ${subject.name}`, () => { if (trusted()) this.#block(person) }, { danger: true, action: 'block' }) },
+      ])
+    }, sheet: '(max-width: 599px)' })
+    this.#moreMenu = { handle, menu }
+  }
+
+  #openInvite(person: Person, opener: HTMLElement): void {
+    const name = person.request ? shortNpub(person.pubkey) : person.name ?? shortNpub(person.pubkey)
+    const options = this.#actions.inviteOptions(person)
+    document.getElementById('peopleInviteMenu')?.remove()
+    const menu = document.createElement('div')
+    menu.id = 'peopleInviteMenu'
+    menu.setAttribute('aria-label', `Invite ${name} to KithMoot`)
+    const trusted = trustedClicks(menu)
+    const choice = (parent: HTMLElement, label: string, second: string, enabled: boolean, reason: string | undefined, run: () => void, action: string) => {
+      const item = menuItem(parent, label, () => { if (trusted()) run() }, { action })
+      const line = document.createElement('span')
+      line.className = 'menuLine'
+      line.textContent = enabled ? second : reason ?? second
+      item.append(line)
+      if (!enabled) { item.disabled = true; item.setAttribute('aria-disabled', 'true') }
+    }
+    menuGroups(menu, [
+      m => {
+        const heading = document.createElement('p')
+        heading.className = 'menuHeading'
+        heading.textContent = `Invite ${name} to KithMoot`
+        m.append(heading)
+      },
+      m => {
+        const existing = options.privateChat.existing
+        choice(m, 'A private chat', existing ? 'You already have one. Open it.' : `Starts a KithMoot chat with ${name}`,
+          options.privateChat.enabled, options.privateChat.reason,
+          () => this.#run(this.#actions.invitePrivateChat(person, () => this.sendNote(person, INVITE_NOTE))), 'private-chat')
+        choice(m, 'A room…', 'Choose one of your rooms', options.room.enabled, options.room.reason,
+          () => this.#run(this.#actions.invite(person, () => this.sendNote(person, INVITE_NOTE))), 'room')
+      },
+      m => {
+        const note = document.createElement('p')
+        note.className = 'menuNote note'
+        note.textContent = `${name} gets it as a Nostr message with a link to join.`
+        m.append(note)
+      },
+    ])
+    document.body.append(menu)
+    const handle = wireMenu(opener, menu, { sheet: '(max-width: 599px)' })
+    // The menu is built on the click and opened here; the declarative invoker would toggle it shut again.
+    opener.removeAttribute('popovertarget')
+    menu.addEventListener('toggle', event => { if ((event as ToggleEvent).newState === 'closed') queueMicrotask(() => menu.remove()) })
+    this.#inviteMenu = { handle, menu }
+    handle.open()
+  }
+
+  #infoPanel(person: Person, subject: ThreadSubject, shared: SharedRoom[], sent: SentInvitation[], check: ReturnType<PeopleActions['check']> | undefined): HTMLElement {
+    const panel = document.createElement('aside')
+    panel.className = 'peopleInfo'
+    panel.setAttribute('aria-labelledby', 'peopleInfoTitle')
     const back = document.createElement('button')
     back.type = 'button'
-    back.className = 'iconButton peopleBack'
-    back.setAttribute('aria-label', 'Back to people')
-    back.title = 'Back to people'
-    back.append(icon('back'))
-    back.addEventListener('click', () => {
-      this.#actions.closeDetail()
-      this.#rows.querySelector<HTMLButtonElement>(`li[data-person="${person.pubkey}"] button`)?.focus()
-    })
-
+    back.className = 'quiet peopleInfoBack'
+    back.textContent = `Back to ${subject.name}`
+    back.addEventListener('click', event => { if (event.isTrusted) { this.#info = false; this.#paintPane(); this.#thread.field.focus({ preventScroll: true }) } })
     const card = document.createElement('div')
     card.className = 'contactCard'
     const heading = document.createElement('h2')
-    heading.id = 'peoplePaneTitle'
+    heading.id = 'peopleInfoTitle'
     heading.tabIndex = -1
-    heading.textContent = name
+    heading.textContent = subject.name
     const meta = document.createElement('p')
     meta.className = 'contactMeta'
     const sub = subline(person)
     if (person.checked) meta.append(checkMark())
-    if (sub) meta.append(document.createTextNode(sub))
+    if (sub && !person.last) meta.append(document.createTextNode(sub))
     const npub = npubEncode(person.pubkey)
     const key = document.createElement('span')
     key.className = 'contactKey'
     key.textContent = shortNpub(person.pubkey)
     key.title = npub
-    const copy = document.createElement('button')
-    copy.type = 'button'
-    copy.className = 'iconButton'
-    copy.setAttribute('aria-label', `Copy ${name}'s public key`)
-    copy.title = 'Copy public key'
-    copy.append(icon('copy'))
-    copy.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(npub).then(() => { this.#say('Public key copied.') }, () => { this.#say('Copying is not allowed here.') })
-    })
-    meta.append(key, copy)
-
-    const reason = this.#actions.blockedReason(person.pubkey)
-    const actions = document.createElement('div')
-    actions.className = 'contactActions'
-    actions.setAttribute('role', 'group')
-    actions.setAttribute('aria-label', `Actions for ${name}`)
-    const action = (id: string, label: string, glyph: IconName, run: (opener: HTMLButtonElement) => void | Promise<unknown>, needsChat = true) => {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.id = id
-      button.className = 'contactAction'
-      button.append(icon(glyph))
-      const text = document.createElement('span')
-      text.textContent = label
-      button.append(text)
-      button.disabled = this.#busy || (needsChat && !!reason)
-      button.addEventListener('click', () => {
-        const result = run(button)
-        if (!(result instanceof Promise)) return
-        this.#busy = true
-        this.#paintPane()
-        void result.then(note => { this.#note = typeof note === 'string' ? note : '' }, error => { this.#note = error instanceof Error ? error.message : String(error) })
-          .finally(() => { this.#busy = false; this.render() })
-      })
-      return button
-    }
-    if (onNostr) actions.append(action('peopleMessageNostr', person.unread === undefined ? 'Message on Nostr' : 'Open Nostr messages',
-      'chat', opener => this.#actions.messageOnNostr(person.pubkey, opener), false))
-    const contactActions = person.section === 'contacts' || person.section === 'following'
-    if (contactActions) actions.append(
-      action('peopleMessage', 'Message', 'chat', () => this.#actions.message(person)),
-      action('peopleVoice', 'Voice', 'phone', () => this.#actions.call(person, false)),
-      action('peopleVideo', 'Video', 'video', () => this.#actions.call(person, true)),
-      action('peopleInvite', 'Invite', 'personAdd', () => this.#actions.invite(person)),
-      action('peopleInvitePrivate', 'Invite to KithMoot chat', 'chat', () => this.#actions.inviteToNodeChat(person)),
-    )
+    meta.append(key)
     const note = document.createElement('p')
     note.id = 'peopleActionNote'
     note.className = 'note'
     note.setAttribute('role', 'status')
-    note.textContent = this.#note || (contactActions ? reason : '') || (person.section === 'following'
-      ? 'Message, Voice and Video start a private chat. They reach this person only if they use KithMoot.' : '')
-
-    card.append(avatar(person, 'contactAvatar'), heading, meta, actions, note)
+    note.textContent = this.#note
+    card.append(personAvatar(person.pubkey, person.request ? undefined : person.name, person.request ? undefined : person.picture, 'contactAvatar'), heading, meta, note)
     const chat = this.#actions.privateChat(person.pubkey)
     if (chat) {
       const section = document.createElement('section')
@@ -563,6 +789,7 @@ export class PeopleView {
       section.append(title, open)
       card.append(section)
     }
+    const today = Date.now()
     if (shared.length) {
       const list = contactList('peopleSharedRooms', 'Rooms you share')
       for (const room of shared) {
@@ -575,7 +802,7 @@ export class PeopleView {
     if (sent.length) {
       const list = contactList('peopleSentInvitations', 'Invitations')
       for (const invite of sent) {
-        const state = `You invited ${name} · ${invite.joined ? 'Joined' : 'Sent, not joined yet'}`
+        const state = `You invited ${subject.name} · ${invite.joined ? 'Joined' : 'Sent, not joined yet'}`
         const day = invite.at === undefined ? '' : dayWords(invite.at, today)
         const open = contactLinkButton(invite.label, invite.open, state, day)
         open.prepend(icon('personAdd'))
@@ -584,16 +811,11 @@ export class PeopleView {
       }
       card.append(list.section)
     }
-    if (check && contactActions) {
-      // Words are compared in the private chat, so the row is off whenever Message is.
+    if (check && !person.request) {
       const section = document.createElement('div')
       section.className = 'contactSection'
-      const compare = contactLinkButton('Check words together', () => {
-        this.#busy = true
-        this.#paintPane()
-        void this.#actions.checkWords(person!).then(note => { this.#note = note ?? '' }, error => { this.#note = error instanceof Error ? error.message : String(error) })
-          .finally(() => { this.#busy = false; this.render() })
-      }, check.line)
+      const reason = this.#actions.blockedReason(person.pubkey)
+      const compare = contactLinkButton('Check words together', () => this.#run(this.#actions.checkWords(person)), check.line)
       compare.id = 'peopleCheckWords'
       compare.prepend(icon('shield'))
       compare.classList.add(`check-${check.status}`)
@@ -613,29 +835,18 @@ export class PeopleView {
     blockText.className = 'contactLinkText'
     const blockTitle = document.createElement('span')
     blockTitle.className = 'contactLinkTitle'
-    blockTitle.textContent = `Block ${name}`
+    blockTitle.textContent = `Block ${subject.name}`
     const blockSub = document.createElement('span')
     blockSub.className = 'contactLinkSub'
     blockSub.textContent = 'They can’t invite you or ask to join your rooms on this device. They aren’t told.'
     blockText.append(blockTitle, blockSub)
     block.append(blockText)
     block.disabled = this.#busy
-    block.addEventListener('click', () => {
-      try {
-        this.#actions.block(person.pubkey)
-        // They leave the list, so the page closes and says where they went.
-        this.#note = `${name} is blocked on this device. Settings › Privacy lists who you have blocked.`
-        this.#actions.closeDetail()
-      } catch (error) {
-        this.#note = error instanceof Error ? error.message : String(error)
-      }
-      this.render()
-    })
+    block.addEventListener('click', event => { if (event.isTrusted) this.#block(person) })
     blockSection.append(block)
     card.append(blockSection)
-    const focusHeading = this.#pane.contains(document.activeElement) && document.activeElement !== heading
-    this.#pane.replaceChildren(back, card)
-    if (focusHeading) heading.focus({ preventScroll: true })
+    panel.append(back, card)
+    return panel
   }
 
   #say(text: string): void {
@@ -648,7 +859,7 @@ export class PeopleView {
     button.type = 'button'
     button.className = 'quiet'
     button.textContent = label
-    button.addEventListener('click', () => run(button))
+    button.addEventListener('click', event => { if (event.isTrusted) run(button) })
     return button
   }
 
@@ -703,6 +914,32 @@ export class PeopleView {
     this.#menu.style.left = `${Math.round(Math.max(8, Math.min(box.left, window.innerWidth - 280)))}px`
     this.#menu.showPopover()
   }
+}
+
+
+/** The one line sent ahead of a new invitation (P8). */
+export const INVITE_NOTE = "I've invited you to a private chat on KithMoot."
+
+/** A click that came from a person, for menu items that sign, send or block:
+ *  menu.ts closes the menu and runs the item from the click handler, so the
+ *  last click on the menu is the one to ask. */
+function trustedClicks(menu: HTMLElement): () => boolean {
+  let trusted = false
+  menu.addEventListener('click', event => { trusted = event.isTrusted }, true)
+  menu.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') trusted = event.isTrusted }, true)
+  return () => trusted
+}
+
+/** The time at the right of a list row: the clock today, else the day. */
+function rowTime(at: number, now: number): string {
+  return dayWords(at, now) === 'Today' ? timeWords(at) : dayWords(at, now)
+}
+
+/** The line under a name in the Messages section: the newest words. */
+function preview(person: Person): string {
+  const last = person.last!
+  const text = last.text.replace(/\s+/g, ' ').trim()
+  return last.mine ? `You: ${text}` : text
 }
 
 /** A titled list in the contact's pane. */
@@ -781,10 +1018,9 @@ export function shortNpub(pubkey: string): string {
  *  when Signet shares them, else where the contact came from; for someone
  *  followed, their Nostr address once checked, else nothing. */
 function subline(person: Person): string {
-  if (person.unread) return `${person.unread} unread`
   if (person.section === 'nostr') return person.name ? shortNpub(person.pubkey) : ''
   if (person.section === 'conversations') return person.chatName ? 'Private chat' : 'Nostr messages'
-  if (person.section === 'following') return person.address ?? ''
+  if (person.section === 'following') return person.chatName ? 'Private chat' : person.address ?? ''
   const trust = [person.tier ? person.tier[0]!.toUpperCase() + person.tier.slice(1) : '', person.checked ? 'checked' : ''].filter(Boolean).join(' · ')
   return trust || (person.source === 'signet' ? 'Signet' : person.source === 'card' ? 'Contact card' : '')
 }
