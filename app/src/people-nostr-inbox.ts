@@ -276,7 +276,12 @@ export class PeopleNostrInbox {
     const key = peopleInboxReadKey(this.options.account)
     let outcome: ReadOutcome = 'saved'
     try {
-      const release = await this.options.acquire(key)
+      // The previous write's lock can still read as taken for a moment after it is let go
+      // (seen in WebKit), so a refusal is tried once more before it is reported.
+      const release = await this.options.acquire(key).catch(async () => {
+        await new Promise(resolve => setTimeout(resolve, 150))
+        return this.options.acquire(key)
+      })
       try {
         if (!this.#current()) return 'skipped'
         const next = [...new Set([...this.#storedRead(), ...copies])].slice(-MAX_SEEN)
