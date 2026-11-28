@@ -6,7 +6,7 @@ import { NostrRelayPool } from '../src/relay-pool.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
-import { openNewRoomForm, openProfileSettings, nameCreator } from './browser.js'
+import { openNewRoomForm, openProfileSettings, nameCreator, openBoardsDestination } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { ORDINARY_SIGNET_KEYS } from '../app/src/ordinary-signet-snapshot.js'
 import type { PersonaConnection } from '../app/src/persona-store.js'
@@ -159,8 +159,11 @@ test('compact navigation keeps the account within reach in People, Boards and a 
     await page.setViewportSize({ width: 320, height: 640 })
     await signInAccount(page, baseURL!)
     const dialog = page.getByRole('dialog', { name: 'Personas' })
+    // People from the bar; Boards has no bar button since each room has its
+    // own board, so it opens the keyboard's way (Control or Command+3).
     for (const [destination, header] of [['People', '#peopleListHead'], ['Boards', '#workspaceWorkHead']]) {
-      await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: destination }).tap()
+      if (destination === 'Boards') await openBoardsDestination(page)
+      else await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: destination }).tap()
       const avatar = page.locator(header).getByRole('button', { name: /^Account menu for / })
       const box = await avatar.boundingBox()
       expect(box?.width).toBeGreaterThanOrEqual(44)
