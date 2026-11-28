@@ -407,7 +407,12 @@ export class PeopleView {
     text.className = 'personText'
     const title = document.createElement('span')
     title.className = 'personName'
-    title.textContent = name
+    // The words in a span of their own: an ellipsis needs a block to end, and
+    // the check mark beside a long name must stay in view.
+    const words = document.createElement('span')
+    words.className = 'personNameText'
+    words.textContent = name
+    title.append(words)
     if (person.checked) title.append(checkMark())
     text.append(title)
     if (sub) {

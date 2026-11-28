@@ -7,6 +7,11 @@
   flex-direction: column;
   min-height: 0;
 }
+/* Only the rows give way to a long list. A min-height on any part above
+   them (the switch's 44px, the heading's control height) replaces the
+   automatic minimum a flex child would otherwise keep, so without this the
+   list squashes that part and draws the next one over its words. */
+.peopleList > :not(#peopleRows) { flex: none; }
 
 .peopleList .listHead {
   display: flex;
@@ -132,15 +137,20 @@
   min-width: 0;
 }
 .peopleList .personName {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--s1);
+  min-width: 0;
   font-size: var(--fs-2);
   font-weight: 600;
+}
+.peopleList .personNameText {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.peopleList .personName .checkedMark { flex: none; }
 .peopleList .personSub {
   font-size: var(--fs-1);
   line-height: var(--lh-1);
