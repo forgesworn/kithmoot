@@ -1,5 +1,5 @@
 /** Generated from the pinned ForgeMoji artwork snapshot. */
-export const FORGEMOJI_SOURCE = {"repository":"https://github.com/forgesworn/forgemoji","revision":"c9f53357de24fff682e8a234af183406a57757a6","version":"0.1.2","creator":"TheCryptoDonkey","model":"gpt-image-2.5-sunburst","license":"MIT"} as const
+export const FORGEMOJI_SOURCE = {"repository":"https://github.com/forgesworn/forgemoji","revision":"29fd6e48ec2b229fe6c6a1807b806eb1a5280dec","version":"0.2.2","creator":"TheCryptoDonkey","model":"gpt-image-2.5-sunburst","license":"MIT"} as const
 export const FAMILIAR_ART = [
   {
     "emoji": "👍",
@@ -773,7 +773,7 @@ export const FAMILIAR_ART = [
     "emoji": "🍕",
     "slug": "pizza",
     "title": "Pizza",
-    "keywords": "pizza food slice",
+    "keywords": "pizza food slice vegetarian veggie mushroom tomato pepper olive onion",
     "category": "Food",
     "toneable": false
   },
