@@ -5286,10 +5286,10 @@ function renderPersonas(): void {
   const names = others.map(persona => personaName(persona.pubkey))
   $('personaCurrent').hidden = !current
   $('personaCurrentName').textContent = current ? name : ''
-  const shortKey = (pubkey: string): string => `…${npubEncode(pubkey).slice(-8)}`
   const currentKey = $('personaCurrentKey')
   currentKey.hidden = !current || !names.includes(name)
-  currentKey.textContent = !currentKey.hidden && current ? shortKey(current) : ''
+  // Both ends of the key, as People shows it: the end alone hid the start people recognise.
+  currentKey.textContent = !currentKey.hidden && current ? shortNpub(current) : ''
   const reconnect = $('reconnectPersona') as HTMLButtonElement
   reconnect.hidden = !!nostrSession || !current || !choices.some(persona => persona.pubkey === current)
   reconnect.disabled = busy
@@ -5308,7 +5308,7 @@ function renderPersonas(): void {
     button.disabled = busy
     if (label === name || names.indexOf(label) !== names.lastIndexOf(label)) {
       const key = document.createElement('small')
-      key.textContent = shortKey(persona.pubkey)
+      key.textContent = shortNpub(persona.pubkey)
       button.append(key)
     }
     if (persona.pubkey === suggestion && personasOpener === door) {

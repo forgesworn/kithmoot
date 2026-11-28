@@ -4,6 +4,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { dmPolicy } from '../src/dm.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { npubEncode } from 'nostr-tools/nip19'
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
 import { openNewRoomForm, openProfileSettings, nameCreator, openBoardsDestination } from './browser.js'
@@ -149,6 +150,49 @@ test('an invitation suggests the last persona used here and waits for explicit e
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect.poll(() => page.evaluate(({ roomId, owner }) => JSON.parse(localStorage.getItem(`kithmoot.account.${owner}.kithmoot.room.${roomId}`)!).joinedAt,
       { roomId, owner: work.pubkey })).toBeGreaterThan(at - 60)
+  } finally { await context.close() }
+})
+
+test('two personas with the same name show both ends of each key', async ({ browser, baseURL }) => {
+  const firstKey = generateSecretKey(), secondKey = generateSecretKey()
+  const context = await accountDevice(browser, baseURL!, firstKey.slice())
+  const seedPage = new URL('/__persona-fixture', baseURL!).href
+  try {
+    await context.route(seedPage, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html>' }))
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto(seedPage)
+    const fixture = await build({
+      stdin: { contents: 'export { PersonaStore } from "./app/src/persona-store.ts"', resolveDir: process.cwd() },
+      bundle: true, format: 'iife', globalName: 'TestPersonas', write: false,
+    })
+    await page.addScriptTag({ content: fixture.outputFiles[0]!.text })
+    const origin = new URL(baseURL!).origin, at = Math.floor(Date.now() / 1000)
+    const connection = (key: Uint8Array): PersonaConnection => {
+      const pubkey = getPublicKey(key)
+      const proof = finalizeEvent({ kind: 21236, created_at: at,
+        tags: [['challenge', 'a'.repeat(64)], ['origin', origin], ['app', 'KithMoot']], content: '' }, key)
+      return { pubkey, label: 'Ada', method: 'nip07', session: {
+        [ORDINARY_SIGNET_KEYS.pubkey]: pubkey, [ORDINARY_SIGNET_KEYS.method]: 'nip07',
+        [ORDINARY_SIGNET_KEYS.authEvent]: JSON.stringify(proof),
+      } }
+    }
+    const first = connection(firstKey), second = connection(secondKey)
+    await page.evaluate(async personas => {
+      const { PersonaStore } = (window as unknown as { TestPersonas: typeof import('../app/src/persona-store.js') }).TestPersonas
+      const store = new PersonaStore(location.origin)
+      // The last one added is the active persona.
+      for (const persona of personas) await store.add(persona)
+    }, [second, first])
+
+    await page.goto(baseURL!)
+    await expect(page.locator('#railPersonas')).toHaveAttribute('aria-label', 'Account menu for Ada')
+    await page.locator('#railPersonas').click()
+    // The start a person recognises and the end that tells two keys apart, as People shows them.
+    const short = (pubkey: string) => { const npub = npubEncode(pubkey); return `${npub.slice(0, 13)}…${npub.slice(-6)}` }
+    const dialog = page.getByRole('dialog', { name: 'Personas' })
+    await expect(dialog.locator('#personaCurrentKey')).toHaveText(short(first.pubkey))
+    await expect(dialog.locator('#personaChoices button small')).toHaveText(short(second.pubkey))
   } finally { await context.close() }
 })
 
