@@ -7873,6 +7873,12 @@ infoSheet().addEventListener('close', () => {
   infoOpener = undefined
   if (opener?.isConnected && (!active || active === document.body || sheet.contains(active)) && opener.getClientRects().length) opener.focus({ preventScroll: true })
 })
+// Room info belongs to the room on screen. Beside the room it is a panel,
+// not a modal, so the rail stays usable: another destination closes it rather
+// than leave it open over People, Settings or Boards.
+document.addEventListener('shell:destination', event => {
+  if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'chats') closeRoomSheet()
+})
 infoSheet().querySelectorAll<HTMLElement>('[data-info-open]').forEach(row => {
   row.addEventListener('click', () => showInfoPage(row.dataset.infoOpen!, row))
 })

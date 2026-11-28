@@ -182,6 +182,35 @@ test('at 390 by 844 the bottom bar belongs to the list level: labelled, 44 px, g
   } finally { await context.close() }
 })
 
+test('at Huge text the rail grows, so each of its words fits inside its item', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1100, height: 700 }, { size: 'huge' })
+  try {
+    await page.goto(baseURL!)
+    await expect(page.locator('#rooms')).toBeVisible()
+    const spills = await page.locator('#rail .railItem:visible').evaluateAll(items => items.flatMap(item => {
+      const label = item.querySelector('.railLabel')
+      const over = label ? Math.round(label.getBoundingClientRect().width - item.getBoundingClientRect().width) : 0
+      return over > 0 ? [`${label!.textContent} by ${over}px`] : []
+    }))
+    expect(spills).toEqual([])
+    // The ⋯ on each chat row grows with the text too, so its dots stay inside it.
+    await expect(page.locator('#roomList .rowMenu').first()).toBeAttached()
+    const menus = await page.locator('#roomList .rowMenu').evaluateAll(buttons => buttons.filter(button => button.scrollWidth > button.clientWidth + 1 || button.scrollHeight > button.clientHeight + 1).length)
+    expect(menus).toBe(0)
+  } finally { await context.close() }
+})
+
+test('Room info beside the room closes when another destination opens, rather than stay over it', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await openRoomDetails(page)
+    await page.locator('#openAppSettings').click()
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
+  } finally { await context.close() }
+})
+
 test('People shows only for a Nostr sign-in, and opening it fills the shell panes and says so', async ({ browser, baseURL }) => {
   // Name only, in a room, and signed out on the start page: no People.
   const named = await visitor(browser, baseURL!, { width: 1440, height: 900 })
