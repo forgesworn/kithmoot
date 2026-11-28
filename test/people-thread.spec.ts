@@ -4,7 +4,7 @@ import { unwrapEvent } from 'nostr-tools/nip17'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
 import { readContactInvitation } from '../src/contact-invitation.js'
 import { openSettings } from './browser.js'
-import { peopleScenario, seedPeople } from './people-scenario.js'
+import { peopleScenario, say, seedPeople } from './people-scenario.js'
 
 /** Kind 1059 publications from this page, in order. */
 function wraps(page: Page): Event[] {
@@ -355,10 +355,57 @@ test('incoming message announced', async ({ browser, baseURL }) => {
     await row(page, 'Priya Natarajan').getByRole('button').first().click()
     await expect(page.getByRole('log')).toBeVisible()
     await page.locator('#peopleThreadInput').focus()
-    const { say } = await import('./people-scenario.js')
     await say(scenario, scenario.priya, scenario.pubkeys.ada, 'See you at four.')
     await expect(page.locator('#peopleThreadAnnounce')).toHaveText('Priya Natarajan: See you at four.', { timeout: 30_000 })
     await expect(page.getByRole('log')).toContainText('See you at four.')
     await expect(page.locator('#peopleThreadInput')).toBeFocused()
+  } finally { await context.close() }
+})
+
+/** Have the page report itself hidden, or visible again, the way a background tab does. */
+const setHidden = (page: Page, hidden: boolean) => page.evaluate(hide => {
+  if (hide) {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+  } else {
+    delete (document as { hidden?: boolean }).hidden
+    delete (document as { visibilityState?: string }).visibilityState
+  }
+  document.dispatchEvent(new Event('visibilitychange'))
+}, hidden)
+
+test('at phone width, opening a message request marks it read, and one that lands while hidden waits until the app is back', async ({ browser, baseURL }) => {
+  const { context, page, scenario } = await start(browser, baseURL!, { width: 390, height: 844 })
+  try {
+    for (const name of ['Priya Natarajan', 'Bob Okafor', 'Message request']) await expect(row(page, name)).toBeVisible()
+    await expect(page.locator('#railPeopleCount')).toHaveText('4')
+    await row(page, 'Message request').getByRole('button').first().click()
+    await expect(page.getByRole('log')).toContainText('Hello, you do not know me yet.')
+    await expect(page.locator('#railPeopleCount')).toHaveText('3')
+    await setHidden(page, true)
+    await say(scenario, scenario.sam, scenario.pubkeys.ada, 'Are you still there?')
+    await expect(page.getByRole('log')).toContainText('Are you still there?')
+    await expect(page.locator('#railPeopleCount')).toHaveText('4')
+    await setHidden(page, false)
+    await expect(page.locator('#railPeopleCount')).toHaveText('3')
+  } finally { await context.close() }
+})
+
+test('coming back to an open thread, and a burst of messages in it, mark read without a failed save', async ({ browser, baseURL }) => {
+  const { context, page, scenario } = await start(browser, baseURL!)
+  try {
+    const line = page.locator('#peopleInboxLine'), log = page.getByRole('log', { name: 'Messages with Priya Natarajan' })
+    await row(page, 'Priya Natarajan').getByRole('button').first().click()
+    await expect(page.locator('#railPeopleCount')).toHaveText('1')
+    await page.locator('#railChats').click()
+    await say(scenario, scenario.priya, scenario.pubkeys.ada, 'One more thing.')
+    await expect(page.locator('#railPeopleCount')).toHaveText('2')
+    await page.locator('#railPeople').click()
+    await expect(log).toContainText('One more thing.')
+    await expect(page.locator('#railPeopleCount')).toHaveText('1')
+    await Promise.all(['First of three.', 'Second of three.', 'Third of three.'].map(text => say(scenario, scenario.priya, scenario.pubkeys.ada, text)))
+    for (const text of ['First of three.', 'Second of three.', 'Third of three.']) await expect(log).toContainText(text)
+    await expect(page.locator('#railPeopleCount')).toHaveText('1')
+    await expect(line).not.toContainText('could not be saved')
   } finally { await context.close() }
 })
