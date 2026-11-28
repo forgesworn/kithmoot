@@ -74,6 +74,9 @@
   height: 56px;
   border-radius: var(--r-full);
   font-size: var(--fs-4);
+  font-weight: 600;
+  color: #fff;
+  background: var(--avatar, #0e7fa3);
 }
 .peopleIntro p { margin: 0; }
 .peopleIntroName { font-size: var(--fs-3); font-weight: 600; overflow-wrap: anywhere; }
