@@ -623,7 +623,7 @@ export async function openNewProject(page: Page): Promise<void> {
 export async function openBoardsDestination(page: Page): Promise<void> {
   const panel = page.locator('#workspaceWorkPanel')
   await expect(async () => {
-    if (!await panel.isVisible()) await page.keyboard.press('ControlOrMeta+3')
+    if (!await panel.isVisible()) await page.keyboard.press('Control+3')
     await expect(panel).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 30_000 })
 }
