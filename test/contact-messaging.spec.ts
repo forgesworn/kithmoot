@@ -41,7 +41,7 @@ test('Signet contacts start a private conversation without a shared room, delive
     // Account restoration never opens arriving wrappers. Bob chooses to load
     // and classify the invitation before using the existing room controls.
     await expect(invitations).toHaveCount(0)
-    await openSettings(bob, 'Account'); await bob.locator('#nostrInboxEntry').click()
+    await openSettings(bob, 'Account'); await bob.locator('#nostrAccountInboxEntry').click()
     await bob.locator('#nostrInboxLoad').click()
     await bob.locator('.ordinaryMessageOpen').click()
     await expect(bob.locator('.ordinaryInvitationReview')).toBeVisible()

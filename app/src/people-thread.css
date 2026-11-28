@@ -1,0 +1,175 @@
+/* A Nostr thread in the People pane (app/src/people-thread.ts). It reuses the
+   room's bubble and time rules; everything here is scoped to .peopleThread. */
+
+.peopleThread {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.peopleThreadScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s3) var(--s4);
+  /* A message scrolled to by focus clears the header and the composer. */
+  scroll-padding: 56px 76px;
+}
+.peopleThreadLog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.peopleThreadLog .peopleDay {
+  align-self: center;
+  margin: var(--s4) 0 var(--s1);
+  padding: 2px var(--s3);
+  border-radius: var(--r-full);
+  background: var(--selected);
+  color: var(--muted);
+  font-size: var(--fs-1);
+}
+.peopleMsg .peopleMsgText {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.peopleMsg .peopleOutcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--s2);
+  max-width: 100%;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+}
+.peopleMsg .peopleOutcome button { min-height: 44px; }
+.peopleMsg .peopleRelays { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
+
+.peopleIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  max-width: 44ch;
+  margin: var(--s4) auto;
+  padding: var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  text-align: center;
+}
+.peopleIntroHead { display: flex; flex-direction: column; align-items: center; gap: var(--s2); }
+.peopleIntro .peopleIntroAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-4);
+  font-weight: 600;
+  color: #fff;
+  background: var(--avatar, #0e7fa3);
+}
+.peopleIntro p { margin: 0; }
+.peopleIntroName { font-size: var(--fs-3); font-weight: 600; overflow-wrap: anywhere; }
+.peopleIntroStrong { font-weight: 600; }
+.peopleIntroLines { display: flex; flex-direction: column; gap: var(--s1); }
+.peopleIntroButtons { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); }
+.peopleIntroButtons button { min-height: 44px; }
+.peopleRequestBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-1);
+}
+
+.peopleThreadStatus { margin: 0; padding: 0 var(--s4); }
+.peopleThreadBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s2) var(--s4);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-m);
+  font-size: var(--fs-2);
+}
+.peopleThreadBar button { min-height: 44px; }
+
+.peopleComposer {
+  flex: none;
+  padding: var(--s2) var(--s4) var(--s3);
+  padding-bottom: max(var(--s3), env(safe-area-inset-bottom));
+}
+.peopleComposerField {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s2);
+  min-height: 44px;
+  padding: 0 var(--s1) 0 var(--s3);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-full);
+  background: var(--field);
+}
+.peopleComposerField.grown { border-radius: var(--r-m); }
+.peopleComposerField:focus-within { border-color: var(--focus); }
+.peopleLane { align-self: center; color: var(--muted); font-size: var(--fs-1); }
+.peopleComposerField textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 42px;
+  max-height: 144px;
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: max(1rem, var(--fs-2));
+  resize: none;
+  outline: none;
+}
+.peopleSend {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.peopleSend:disabled { opacity: 0.5; }
+.peopleCount { margin: 0; padding: var(--s1) var(--s3) 0; }
+
+/* A short landscape screen keeps the thread, not the chrome. */
+@media (max-height: 500px) {
+  .peopleIntro { flex-direction: row; flex-wrap: wrap; max-width: none; margin: var(--s2) 0; padding: var(--s2) var(--s3); text-align: left; }
+  .peopleIntro .peopleIntroLines, .peopleIntro .peopleIntroCalls { display: none; }
+  .peopleComposer { padding-block: var(--s1); }
+  .peopleComposerField { min-height: 44px; }
+}
+@media (forced-colors: active) {
+  .peopleComposerField, .peopleThreadBar, .peopleIntro { border: 1px solid CanvasText; }
+  .peopleSend { border: 1px solid ButtonText; }
+}
+
+/* The pane is as tall as the window, so the composer stays in view and the messages scroll above it. */
+html[data-destination='people'] #workspaceContent > #peoplePane { flex: 1 1 auto; min-height: 0; }

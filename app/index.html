@@ -1094,10 +1094,22 @@
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="accountPersonas" type="button" aria-haspopup="dialog" aria-controls="personasDialog">Personas</button>
           <button id="signOut" type="button" hidden>Sign out</button>
-          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>New Nostr message</button>
-          <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
+          <section id="nostrMessagesGroup" class="settingsGroup" aria-labelledby="nostrMessagesHeading" hidden>
+            <h3 id="nostrMessagesHeading">Nostr messages</h3>
+            <label class="checkboxRow"><input id="nostrInboxSwitch" type="checkbox" role="switch" aria-describedby="nostrInboxSwitchNote" /> <span>Nostr inbox on this device</span></label>
+            <p id="nostrInboxSwitchNote" class="note">Receive Nostr messages and private chat invitations here.</p>
+            <div class="infoRows">
+              <button id="nostrInboxRelaysOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings">
+                <span class="infoRowText"><span class="infoRowTitle">Inbox relays</span></span>
+                <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+              </button>
+              <button id="nostrOpenPeople" type="button" class="infoRow">
+                <span class="infoRowText"><span class="infoRowTitle">Open in People</span></span>
+                <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+              </button>
+            </div>
+          </section>
           <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
-          <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
           <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
@@ -2004,53 +2016,6 @@
           <canvas id="myCardQr" hidden width="320" height="320" aria-label="My contact card as a QR code"></canvas>
         </div>
       </section>
-      </div>
-    </dialog>
-
-    <dialog id="peopleNostrDialog" class="sharedProjectsSheet" aria-labelledby="peopleNostrTitle">
-      <div class="sheetBar"><h2 id="peopleNostrTitle">Nostr messages</h2><button id="peopleNostrClose" type="button" autofocus>Close</button></div>
-      <div class="sheetBody">
-        <p id="peopleNostrStatus" role="status" class="note"></p>
-        <div id="peopleNostrActions" class="peopleNostrActions">
-          <button id="peopleNostrCompose" type="button" hidden>New message</button>
-          <button id="peopleNostrRelays" type="button" class="quiet">Inbox relays</button>
-          <button id="peopleNostrRefresh" type="button" class="quiet" hidden>Refresh</button>
-          <button id="peopleNostrToggle" type="button" class="quiet">Turn off inbox</button>
-        </div>
-        <div id="peopleNostrContent"></div>
-      </div>
-    </dialog>
-
-    <dialog id="nostrMessageDialog" class="sharedProjectsSheet nostrComposer" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
-      <div class="sheetBar"><h2 id="nostrMessageTitle">New Nostr message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
-      <div class="sheetBody">
-        <p id="nostrMessageTo" class="nostrComposerRecipient" hidden>To <strong id="nostrMessageToName"></strong> <bdi id="nostrMessageToKey" class="note"></bdi></p>
-        <form id="nostrMessageForm">
-          <div id="nostrMessageAddress">
-            <label for="nostrMessageRecipient">Recipient’s Nostr public key</label>
-            <input id="nostrMessageRecipient" name="recipient" type="text" placeholder="npub1…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
-          </div>
-          <div id="nostrMessageDraft">
-            <label for="nostrMessageText">Message</label>
-            <textarea id="nostrMessageText" name="message" rows="4" maxlength="4096" autocomplete="off" required></textarea>
-          </div>
-          <div class="nostrComposerOutcome" id="nostrMessageOutcome" role="status" aria-live="polite" aria-atomic="true" hidden>
-            <strong id="nostrMessageState"></strong>
-            <p id="nostrMessageStatus"></p>
-          </div>
-          <p id="nostrMessagePreview" class="nostrComposerPreview" hidden></p>
-          <p id="nostrMessageLane" class="nostrComposerRoute">Encrypted · Public Nostr relays</p>
-          <p id="nostrMessageWarning" class="note">Relays can see the recipient’s public key and when they receive the encrypted message.</p>
-          <details id="nostrMessageDetails" hidden>
-            <summary>Inbox relay details</summary>
-            <p id="nostrMessageSummary" class="note"></p>
-          </details>
-          <div class="nostrComposerActions">
-            <button id="nostrMessageReview" type="submit">Check inbox relays</button>
-            <button id="nostrMessageSend" type="button" hidden>Send encrypted message</button>
-            <button id="nostrMessageView" type="button" hidden>View conversation</button>
-          </div>
-        </form>
       </div>
     </dialog>
 

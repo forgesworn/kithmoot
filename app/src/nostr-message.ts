@@ -147,7 +147,7 @@ export class NostrMessage {
       if (!recipientRelays.length || !senderRelays.length) {
         this.#phase = 'not-sent'
         this.#status = !recipientRelays.length ? 'This person needs usable inbox relays published in their Nostr app.'
-          : 'Publish your inbox relays under Nostr messages → Inbox relays so you can keep an encrypted copy.'
+          : 'Publish your inbox relays in Settings › Account › Inbox relays so you can keep an encrypted copy.'
         return
       }
       this.#review = Object.freeze({ recipient, text, recipientRelays: Object.freeze(recipientRelays), senderRelays: Object.freeze(senderRelays),

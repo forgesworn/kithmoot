@@ -62,17 +62,17 @@ import { ordinaryMessageDecrypt } from './nostr-message-receive-signer.js'
 import { ordinarySendStatusKey, rememberOrdinaryCopy, rememberOrdinarySendStatus } from './nostr-message-history.js'
 import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
-import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './people-nostr-inbox.js'
-import { PeopleNostrPanel } from './people-nostr-panel.js'
+import { PeopleNostrInbox, type NostrPeopleThread, peopleInboxEnabledKey, peopleInboxReadKey } from './people-nostr-inbox.js'
 import { PeopleProfileCache } from './people-profile-cache.js'
-import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
+import { PeopleView, INVITE_NOTE, shortNpub as personKey, type InviteOptions, type PeopleModel, type Person } from './people.js'
+import type { Availability, ThreadHost } from './people-thread.js'
 import { PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY, peopleSearchKey, searchNostrPeople } from './people-search.js'
 import { cancelPeoplePictureLoads, forgetPeoplePictures, setPeoplePicture } from './people-pictures.js'
 import { OwnRoomProfile, roomProfileDisplay } from './own-room-profile.js'
 import { readRoomProfile } from '../../src/room-profile.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
-import { NostrMessagePanel } from './nostr-message-panel.js'
+import { NostrMessage } from './nostr-message.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
 import { LegacyMessageLifetime } from './legacy-message-lifetime.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
@@ -127,7 +127,7 @@ import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
-import { currentDestination, openDestination, openDetail, closeDetail, closeSettings, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
+import { currentDestination, detailOpen, onePane, openDestination, openDetail, closeDetail, closeSettings, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
 import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
@@ -1770,10 +1770,8 @@ function keepPersonaSelection(selection: PersonaSelection, pubkey: string | null
     localStorage.removeItem(ACCOUNT_METHOD_STORAGE_KEY)
   } catch { /* The selected connection is already committed in the vault. */ }
 }
-let nostrMessagePanel: NostrMessagePanel | undefined
 let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-let peopleNostrPanel: PeopleNostrPanel | undefined
 let peopleNostrInbox: PeopleNostrInbox | undefined
 let peopleNostrOwner: SignetSession | undefined
 let peopleNostrIdentity = -1
@@ -1782,14 +1780,12 @@ let peopleNostrStatus = ''
 let peopleNostrSuspended = false
 let peopleNostrPeers = new Set<string>()
 let peopleNostrRoutes: { account: SignetSession; directory: string; until: number; statements: NostrEvent[] } | undefined
-function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); peopleNostrPanel?.close(); people?.resetSearch(); privateFileUploadsPanel.close() }
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); people?.resetSearch(); people?.closeThreads(); privateFileUploadsPanel.close() }
 function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !legacyMessagesPanel?.available
-  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrMessagePanel?.available
-  ;($('nostrInboxEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrInboxPanel?.available
   ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrInboxPanel?.available
-  $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
-  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile()
+  paintNostrInboxSwitch()
   reconcilePeopleNostrInbox()
 }
 const legacyMessageLifetime = new LegacyMessageLifetime(closeAccountMessageViews, reconcileAccountMessageViews)
@@ -4873,7 +4869,6 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   if (invitation.node) {
     const node = parseNodeRoomLink(invitation.link, nowSeconds())
     if (!node || node.room !== invitation.room) throw Error('This private chat invitation has expired.')
-    peopleNostrPanel?.close()
     ;($('contactsDialog') as HTMLDialogElement).close()
     await switchRoom(contactInvitationRoom(invitation, name), undefined, { record: node.event.id, allowed: current })
     return
@@ -4883,7 +4878,7 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   ;($('contactsDialog') as HTMLDialogElement).close()
   await switchRoom(room)
 }
-async function inviteToNodeChat(peer: string, name?: string): Promise<string | undefined> {
+async function inviteToNodeChat(peer: string, name?: string, note?: () => Promise<void>): Promise<string | undefined> {
   const account = nostrSession, inbox = contactInbox
   if (!account || !inbox?.snapshot().ready || !mayInviteToNodeChat(peer)) return 'Wait for your private invitation inbox to open.'
   if (startingContactMessage) return 'A private conversation is already opening.'
@@ -4897,7 +4892,7 @@ async function inviteToNodeChat(peer: string, name?: string): Promise<string | u
     return
   }
   const known = knownRooms(roomStore()).find(room => dmPeer(parseNodeRoomLink(room.link, nowSeconds())?.existing?.policy, account.pubkey) === peer)
-  if (known) { peopleNostrPanel?.close(); openFromPeople(known); return }
+  if (known) { openFromPeople(known); return }
   const pair = loadPairedNode(deviceStore, account.pubkey)
   if (!pair) return 'Pair your KithMoot node in Settings → Calls to invite someone to a private chat.'
   const signer = nostrMessageIdentity(account, () => nostrSession, true)
@@ -4920,6 +4915,9 @@ async function inviteToNodeChat(peer: string, name?: string): Promise<string | u
     const room = held ?? await createBrowserNodeRoom(deviceStore, pair, owner, { allowed: current, name: label, membersPolicy: dmPolicy(account.pubkey, peer) })
     if (held?.phase === 'creating') await resumeBrowserNodeCreation(deviceStore, held, pair, owner, { allowed: current })
     if (!current()) return 'Your account or contact changed.'
+    // The one-line note goes first, as an ordinary message, and never holds the invitation back (P8).
+    await note?.()
+    if (!current()) return 'Your account or contact changed.'
     const invitation = await inbox.enqueue(peer, room.node.room, encodeNodeRoomLink(joinLinkBase(), room.node.event, nowSeconds()), theirs, own)
     void inbox.retry()
     await openContactInvitation(invitation)
@@ -4928,7 +4926,7 @@ async function inviteToNodeChat(peer: string, name?: string): Promise<string | u
   } finally { startingContactMessage = false }
 }
 function renderContactInbox(): void {
-  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile()
   const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
   $('contactsSignIn').hidden = !!self
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
@@ -4963,7 +4961,7 @@ function renderContactInbox(): void {
   // sign-in), and its first paint then picks them up instead.
   try { renderRooms() } catch { /* Not drawn yet. */ }
 }
-async function messageContact(peer: string, name?: string): Promise<void> {
+async function messageContact(peer: string, name?: string, note?: () => Promise<void>): Promise<void> {
   if (!requireNostrFeature()) return
   if (startingContactMessage || !mayMessageContact(peer)) return
   const account = nostrSession!, inbox = contactInbox, generation = contactInboxGeneration
@@ -4995,6 +4993,9 @@ async function messageContact(peer: string, name?: string): Promise<void> {
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
     relayConnections.setRoomRelays(roomId, { fixed: roomRelays, signed: true })
     await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId, roomRelays })
+    if (!current()) throw new Error('Your account or contact permission changed.')
+    // The one-line note goes first, as an ordinary message, and never holds the invitation back (P8).
+    await note?.()
     if (!current()) throw new Error('Your account or contact permission changed.')
     const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy: dmPolicy(account.pubkey, peer) })
     const invitation = await inbox.enqueue(peer, roomId, link, theirs.length ? theirs : defaults, own.length ? own : defaults)
@@ -5093,7 +5094,7 @@ function renderIdentity(): void {
     unavailable: () => accountNetwork.nostr ? undefined : NOSTR_MODE_REQUIRED,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
+    changed: view => { grantedContactView = view; nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
@@ -5107,8 +5108,8 @@ function renderIdentity(): void {
   // A DM relay list is the account's to publish; a visitor has none.
   $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
-  $('nostrMessageEntry').hidden = nostrSession === undefined
-  $('nostrInboxEntry').hidden = nostrSession === undefined
+  $('nostrMessagesGroup').hidden = nostrSession === undefined
+  $('nostrInboxRelaysOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   $('nostrAccountInboxEntry').hidden = nostrSession === undefined
   $('legacyMessagesEntry').hidden = nostrSession === undefined
   reconcileAccountMessageViews()
@@ -20223,12 +20224,16 @@ function peopleModel(): PeopleModel {
       person.chatName = chatName
       if (chatName !== 'Private chat') person.name ??= chatName
     }
-    for (const thread of peopleNostrInbox?.threads() ?? []) {
+    for (const [rank, thread] of (peopleNostrInbox?.threads() ?? []).entries()) {
       if (contactIsBlocked(thread.peer)) continue
       add(thread.peer, { section: 'conversations' })
       const person = byKey.get(thread.peer)
-      if (person) person.unread = thread.unread
-      if (person?.section === 'conversations' && !chatPeers.has(thread.peer) && !thread.messages.some(message => message.author === self)) delete person.picture
+      if (!person) continue
+      person.unread = thread.unread
+      const last = thread.messages.reduce<typeof thread.messages[number] | undefined>((newest, message) => !newest || message.sentAt >= newest.sentAt ? message : newest, undefined)
+      if (last) { person.last = { at: last.sentAt, text: last.text, mine: last.author === self }; person.rank = rank }
+      // A request is named by its short key, with no picture, until this account has replied (P6).
+      if (isMessageRequest(thread)) { person.request = true; delete person.name; delete person.picture }
     }
   }
   const all = [...byKey.values()]
@@ -20412,12 +20417,24 @@ function inPrivateChatWith(peer: string): boolean {
   return !!session && !!room && privateChatWith(peer)?.roomId === room
 }
 
-/** Message: open the private chat, or start one. Returns why not, if it did not open. */
-async function messagePerson(person: Person): Promise<string | undefined> {
+/** Message: open the private chat, or start one. Returns why not, if it did not open.
+ *  `note` runs just before a NEW invitation goes (P8), never for a chat that exists. */
+async function messagePerson(person: Person, note?: () => Promise<void>): Promise<string | undefined> {
   contactInboxMessage = ''
-  await messageContact(person.pubkey, person.name)
+  await messageContact(person.pubkey, person.name, note)
   if (inPrivateChatWith(person.pubkey)) { openDestination('chats'); return undefined }
   return contactInboxMessage || 'The private chat did not open. Try again.'
+}
+
+/** Open the private chat this account already has with them, else start one. */
+async function openPrivateChat(person: Person, note?: () => Promise<void>): Promise<string | undefined> {
+  const room = privateChatWith(person.pubkey)
+  if (room) {
+    openDestination('chats')
+    await switchRoom(room)
+    return inPrivateChatWith(person.pubkey) ? undefined : 'The private chat did not open. Try again.'
+  }
+  return messagePerson(person, note)
 }
 
 /** Voice and Video: open the private chat, then start a call in it with the
@@ -20425,7 +20442,7 @@ async function messagePerson(person: Person): Promise<string | undefined> {
  *  rings only if it already has this private chat (spec D4); a first call
  *  reaches them as an invitation to the chat. */
 async function callPerson(person: Person, video: boolean): Promise<string | undefined> {
-  const failed = await messagePerson(person)
+  const failed = await openPrivateChat(person)
   if (failed) return failed
   await joinCall()
   if (!onCall()) return undefined
@@ -20438,11 +20455,51 @@ async function callPerson(person: Person, video: boolean): Promise<string | unde
  *  the room there as today's sealed in-room invite. The private inbox
  *  carries private-chat invitations only, so a group room travels inside a
  *  room the two of them share, as it does from a member's row. */
-async function invitePerson(person: Person): Promise<string | undefined> {
-  const failed = await messagePerson(person)
+async function invitePerson(person: Person, note?: () => Promise<void>): Promise<string | undefined> {
+  const failed = await openPrivateChat(person, note)
   if (failed) return failed
   openInviteToRoom(person.pubkey, person.name)
   return undefined
+}
+
+/** A private chat, or its waiting invitation, that this account already has with them. */
+function existingPrivateChat(peer: string): boolean {
+  if (privateChatWith(peer)) return true
+  return !!contactInbox?.snapshot().invitations.some(invitation => !bookmarks?.forgotten(invitation.room) && (invitation.sender === peer || invitation.recipient === peer))
+}
+
+/** What the Invite menu offers (spec 4.4). */
+function peopleInviteOptions(person: Person): InviteOptions {
+  const peer = person.pubkey, account = nostrSession
+  const general = !account ? 'Sign in with Nostr to invite people.'
+    : !account.signer.nip44 || !account.signer.capabilities.canSignEvents ? 'Your signer can’t encrypt, so it can’t start a private chat.'
+    : contactIsBlocked(peer) ? 'Blocked on this device. Settings › Privacy lists who you have blocked.' : undefined
+  const existing = !general && existingPrivateChat(peer)
+  const paired = !!account && !!loadPairedNode(deviceStore, account.pubkey) && mayInviteToNodeChat(peer)
+  const may = !general && mayMessageContact(peer)
+  return {
+    privateChat: { existing, enabled: !general && (existing || may || paired),
+      reason: general ?? 'Pair your KithMoot node in Settings › Calls to invite someone you don’t follow.' },
+    room: { enabled: !general && (existing || may),
+      reason: general ?? 'Only your contacts and the people you follow can be invited to a room.' },
+  }
+}
+
+/** Invite › A private chat (spec 4.4): an existing or waiting chat opens
+ *  with no note; else a new one starts as Message does, else as a node chat. */
+async function invitePrivateChatPerson(person: Person, note: () => Promise<void>): Promise<string | undefined> {
+  const peer = person.pubkey
+  contactInboxMessage = ''
+  const room = privateChatWith(peer)
+  if (room) return openPrivateChat(person)
+  if (existingPrivateChat(peer)) {
+    if (mayMessageContact(peer)) return messagePerson(person)
+    const failed = await inviteToNodeChat(peer, person.name)
+    return failed
+  }
+  if (mayMessageContact(peer)) return messagePerson(person, note)
+  const failed = await inviteToNodeChat(peer, person.name, note)
+  return failed
 }
 
 /** A small sheet built here rather than in index.html, for Add a contact. */
@@ -20536,12 +20593,11 @@ function linkSignetContacts(opener: HTMLElement): void {
   if (list && pane) people = new PeopleView(list, pane, peopleModel, {
     profileSettings: () => ({ enabled: profilesEnabled, available: accountNetwork.nostr }),
     setPublicProfiles,
-    openProfileSettings,
     blockedReason: peopleBlockedReason,
     block: peer => { setBlocked(peer, true) },
-    message: messagePerson,
-    inviteToNodeChat: person => inviteToNodeChat(person.pubkey, person.name),
     call: callPerson,
+    inviteOptions: peopleInviteOptions,
+    invitePrivateChat: invitePrivateChatPerson,
     invite: invitePerson,
     privateChat: peer => {
       const room = privateChatWith(peer)
@@ -20571,13 +20627,8 @@ function linkSignetContacts(opener: HTMLElement): void {
       return rows.filter(row => row.pubkey !== account?.pubkey)
     },
     isBlocked: contactIsBlocked,
-    canMessageOnNostr: peer => !contactIsBlocked(peer) && (hasPeopleNostrThread(peer) ||
-      peopleNostrEnabled() && nostrMessagePanel?.available === true),
-    messageOnNostr: (peer, opener) => {
-      if (hasPeopleNostrThread(peer)) peopleNostrPanel?.show(opener, peer)
-      else nostrMessagePanel?.show(opener, { peer })
-    },
-    openNostrMessages: opener => peopleNostrPanel?.show(opener),
+    inboxLine: peopleInboxLine,
+    thread: peopleThreadHost(),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,
     showMyCard: showMyCardSheet,
@@ -20585,11 +20636,13 @@ function linkSignetContacts(opener: HTMLElement): void {
     closeDetail: closeDetail,
   })
   document.addEventListener('shell:destination', event => {
-    peopleNostrPanel?.reconcile()
+    people?.reconcileThread()
     if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') { people?.resetSearch(); return }
     follows.refresh()
     renderPeople()
   })
+  // A thread that comes back into view reads what it shows, as a room's chat does.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && currentDestination() === 'people') people?.reconcileThread() })
 }
 
 let browserAssignmentStorage!: typeof import('./assignment-panel.js').browserAssignmentStorage
@@ -21594,23 +21647,31 @@ function peopleNostrEnabled(account = nostrSession): boolean {
 }
 
 function renderPeopleNostr(): void {
-  if (!peopleNostrPanel) return
   const threads = peopleNostrInbox?.threads() ?? []
   const unread = threads.reduce((sum, thread) => sum + thread.unread, 0)
   setCounts({ people: unread })
-  const entry = document.getElementById('peopleNostrOpen') as HTMLButtonElement | null
-  if (entry) {
-    entry.disabled = !accountNetwork.nostr || !nostrSession
-    entry.textContent = unread ? `Nostr messages (${unread > 99 ? '99+' : unread})` : 'Nostr messages'
-    entry.setAttribute('aria-label', unread ? `Nostr messages, ${unread} unread` : 'Nostr messages')
-  }
   const account = nostrSession?.pubkey
-  peopleNostrPeers = new Set(threads.filter(thread => thread.messages.some(message => message.author !== account)).map(thread => thread.peer))
+  // A request's sender is never looked up until the account has replied (P6).
+  peopleNostrPeers = new Set(threads.filter(thread => thread.messages.some(message => message.author !== account) && !isMessageRequest(thread)).map(thread => thread.peer))
   if (peopleNostrPeers.size) {
     follows.ensure()
     wantProfiles([...peopleNostrPeers])
   }
-  peopleNostrPanel.reconcile()
+  paintNostrInboxSwitch()
+}
+
+/** Whether somebody has written to this account without being a contact, a
+ *  follow or a private chat, and without an answer from it yet (P6). */
+function isMessageRequest(thread: NostrPeopleThread): boolean {
+  const self = nostrSession?.pubkey
+  if (!self || thread.messages.some(message => message.author === self)) return false
+  return !peopleKnown(thread.peer)
+}
+
+function peopleKnown(peer: string): boolean {
+  const view = grantedContactView
+  const granted = !!view && (view.status === 'ready' || view.status === 'stale') && view.contacts.some(contact => contact.pubkey === peer)
+  return granted || contactFor(deviceStore, peer) !== undefined || follows.follows(peer) || privateChatWith(peer) !== undefined
 }
 
 function hasPeopleNostrThread(peer: string): boolean {
@@ -21625,7 +21686,6 @@ function stopPeopleNostrInbox(): void {
 }
 
 function reconcilePeopleNostrInbox(refresh = false): void {
-  if (!peopleNostrPanel) return
   const account = nostrSession
   const network = accountNetwork.generation
   const generation = identityGeneration
@@ -21699,22 +21759,113 @@ function reconcilePeopleNostrInbox(refresh = false): void {
   renderPeople()
 }
 
-function peopleNostrComposeEligible(): boolean {
-  return currentDestination() === 'people' && canCheckAccountMessages()
+/** Whether People may send and search right now (P7). Unlike the account
+ *  views, this does not wait for the rooms list: a room or call that carries
+ *  on in the background shares no socket with the account's own pools
+ *  ('nostr-message', 'people-nostr-inbox', 'people-search'), so only a join,
+ *  a room switch or a sign-in in progress holds it back. */
+function peopleComposeEligible(): boolean {
+  return currentDestination() === 'people' && accountNetwork.nostr && !!nostrSession && legacyMessageLifetime.idle
+    && !joining && !switchingRoom && !loginBusy && !forgettingBrowser
 }
 
-function peopleNostrContact(peer: string): { name?: string; known: boolean; picture?: string } {
-  const view = grantedContactView
-  const granted = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts.find(row => row.pubkey === peer) : undefined
-  const card = contactFor(deviceStore, peer)
-  const profile = profiles.get(peer)
-  const known = mayMessageContact(peer)
-  const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profile?.name
-  return { name, known, picture: known ? profile?.picture : undefined }
+function paintNostrInboxSwitch(): void {
+  const box = document.getElementById('nostrInboxSwitch') as HTMLInputElement | null
+  if (!box) return
+  box.checked = peopleNostrEnabled()
+  box.disabled = !nostrSession || !accountNetwork.nostr
+}
+
+function setPeopleNostrEnabled(enabled: boolean): void {
+  const account = nostrSession
+  if (!account) return
+  peopleNostrStatus = ''
+  try {
+    deviceStore.set(peopleInboxEnabledKey(account.pubkey), enabled ? '1' : '0')
+    reconcilePeopleNostrInbox()
+  } catch { peopleNostrStatus = 'The inbox preference could not be saved on this device.' }
+  paintNostrInboxSwitch()
+  renderPeople(); people?.reconcileThread()
+}
+
+/** One engine per message: the thread drives it and the engine keeps every
+ *  guard it had in the old dialog. */
+function peopleEngine(changed: () => void): NostrMessage | undefined {
+  const account = nostrSession
+  if (!account || !peopleComposeEligible() || !peopleNostrEnabled(account)) return undefined
+  const generation = identityGeneration, network = accountNetwork.current()
+  const identity = nostrMessageIdentity(account, () => nostrSession, true, globalThis.WebSocket)
+  if (!identity) return undefined
+  const current = () => nostrSession === account && generation === identityGeneration && network() && peopleComposeEligible() && peopleNostrEnabled(account)
+  return new NostrMessage({ identity, current, blocked: contactIsBlocked,
+    lookup: (authors, live) => lookUpOrdinaryInboxLists(authors, live, ordinaryInboxDirectory()),
+    allowsRelay: publicPeopleRelay,
+    rememberCopy: (event, live) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, live),
+    recordOutgoing: async (outgoing, live) => {
+      if (!live()) return
+      if (peopleNostrOwner === account) peopleNostrInbox?.recordOutgoing(outgoing)
+      await rememberOrdinarySendStatus(deviceStore, account.pubkey, outgoing.copy.id, outgoing.status, acquireOrdinaryMessageHistory, live)
+    },
+    publish: async (event, relays, live, acknowledged) => {
+      const allowed = () => live() && relays.every(publicPeopleRelay)
+      if (!allowed()) throw Error('Account view or public inbox routing changed.')
+      // Explicit hints define each carrier; no NIP-65/default destination is added.
+      // Every relay is offered the event on its own, and one that has not accepted
+      // is offered it again after authenticating with a throwaway key (never the
+      // account). The caller independently guards every queued socket write/retry.
+      const { unaccepted } = await publishToInboxRelays(event, relays, allowed,
+        url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]), acknowledged)
+      return { unaccepted: unaccepted.map(row => row.url) }
+    },
+    changed })
+}
+
+function openSettingsAccount(): void {
+  openDestination('settings'); showSettingsPage('account')
+}
+
+/** Why the composer is not usable, in the words the spec gives, else ready. */
+function peopleAvailability(): Availability {
+  const account = nostrSession
+  if (!account) return { ready: false, text: 'Sign in with Nostr to send messages.' }
+  if (!accountNetwork.nostr) return { ready: false, text: 'Nostr networking is off. Turn it on in Settings › Account.', action: { label: 'Open Settings', run: openSettingsAccount } }
+  if (!nostrMessageIdentity(account, () => nostrSession, true, globalThis.WebSocket)) return { ready: false, text: 'Your signer can’t encrypt messages, so it can’t send them from here.' }
+  if (!peopleNostrEnabled(account)) return { ready: false, text: 'Your Nostr inbox is off on this device.', action: { label: 'Turn on inbox', run: () => setPeopleNostrEnabled(true) } }
+  const status = peopleNostrInbox?.status ?? ''
+  if (/another tab/i.test(status)) return { ready: false, text: 'Nostr messages are open in another KithMoot tab.' }
+  if (/No usable public inbox relay list/.test(status)) return { ready: false, text: 'Set up your Nostr inbox before you send, so replies can reach you.', action: { label: 'Set up', run: () => void openDmRelaySettings() } }
+  if (!peopleComposeEligible()) return { ready: false, text: 'Sending waits while a room opens.' }
+  return { ready: true }
+}
+
+/** The one line over the list about the inbox, if it needs saying. */
+function peopleInboxLine(): { text: string; action?: { label: string; run(): void } } | undefined {
+  const account = nostrSession
+  if (!account || !accountNetwork.nostr) return undefined
+  if (!peopleNostrEnabled(account)) return { text: 'Your Nostr inbox is off on this device.', action: { label: 'Turn on', run: () => setPeopleNostrEnabled(true) } }
+  if (!navigator.onLine) return { text: 'Offline. New messages arrive when you reconnect.' }
+  const status = peopleNostrStatus || peopleNostrInbox?.status || ''
+  if (!peopleNostrInbox && !status) return { text: 'Connecting to your Nostr inbox…' }
+  if (/another tab/i.test(status)) return { text: 'Nostr messages are open in another KithMoot tab.' }
+  if (/No usable public inbox relay list/.test(status)) return { text: 'Set up your Nostr inbox to get messages.', action: { label: 'Set up', run: () => void openDmRelaySettings() } }
+  if (/Allow Nostr inbox access in your signer/.test(status)) return { text: 'Allow KithMoot to decrypt Nostr messages in your signer, then try again.', action: { label: 'Try again', run: () => reconcilePeopleNostrInbox(true) } }
+  return status ? { text: status } : undefined
+}
+
+function peopleThreadHost(): ThreadHost {
+  return {
+    self: () => nostrSession?.pubkey,
+    thread: peer => peopleNostrInbox?.threads().find(thread => thread.peer === peer),
+    availability: peopleAvailability,
+    engine: peopleEngine,
+    markRead: ids => peopleNostrInbox?.markRead(new Set(ids)),
+    visible: () => currentDestination() === 'people' && !document.hidden && (!onePane() || detailOpen()),
+    focusField: () => !window.matchMedia('(pointer: coarse)').matches,
+  }
 }
 
 function canSearchNostrPeople(): boolean {
-  return profilesEnabled && peopleNostrComposeEligible() &&
+  return profilesEnabled && peopleComposeEligible() &&
     (publicPeopleRelay(PEOPLE_SEARCH_RELAY) || publicPeopleRelay(PEOPLE_PROFILE_RELAY))
 }
 
@@ -21728,62 +21879,6 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
     const hold = relayConnections.pool('default')
     // Capture only this borrower's receive/cleanup surface, never publish.
     return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
-  },
-})
-nostrMessagePanel = new NostrMessagePanel(document, {
-  account: () => nostrSession, epoch: () => identityGeneration,
-  eligible: () => accountMessageViewEligible() || peopleNostrComposeEligible() && peopleNostrEnabled(),
-  direct: peopleNostrComposeEligible,
-  allowLocal: peopleNostrComposeEligible,
-  remoteSocket: () => peopleNostrComposeEligible() ? globalThis.WebSocket : undefined,
-  blocked: contactIsBlocked,
-  lookup: (authors, current) => lookUpOrdinaryInboxLists(authors, current, peopleNostrComposeEligible() ? ordinaryInboxDirectory() : undefined),
-  allowsRelay: publicPeopleRelay,
-  rememberCopy: (event, account, current) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, current),
-  recordOutgoing: async (outgoing, account, current) => {
-    if (!current()) return
-    if (peopleNostrOwner === account) peopleNostrInbox?.recordOutgoing(outgoing)
-    await rememberOrdinarySendStatus(deviceStore, account.pubkey, outgoing.copy.id, outgoing.status, acquireOrdinaryMessageHistory, current)
-  },
-  recipientName: peer => peopleNostrContact(peer).name,
-  viewConversation: (opener, peer, messageId) => peopleNostrPanel?.showMessage(opener, peer, messageId),
-  publish: async (event, relays, current, acknowledged) => {
-    const allowed = () => current() && relays.every(publicPeopleRelay)
-    if (!allowed()) throw Error('Account view or public inbox routing changed.')
-    // Explicit hints define each carrier; no NIP-65/default destination is added.
-    // Every relay is offered the event on its own, and one that has not accepted
-    // is offered it again after authenticating with a throwaway key (never the
-    // account). The caller independently guards every queued socket write/retry.
-    const { unaccepted } = await publishToInboxRelays(event, relays, allowed,
-      url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]), acknowledged)
-    return { unaccepted: unaccepted.map(row => row.url) }
-  },
-})
-peopleNostrPanel = new PeopleNostrPanel(document, {
-  account: () => nostrSession?.pubkey,
-  available: () => currentDestination() === 'people' && accountNetwork.nostr && !!nostrSession && legacyMessageLifetime.idle && !loginBusy && !forgettingBrowser,
-  enabled: peopleNostrEnabled,
-  toggle: async () => {
-    const account = nostrSession
-    if (!account) return
-    peopleNostrStatus = ''
-    try {
-      const key = peopleInboxEnabledKey(account.pubkey)
-      deviceStore.set(key, peopleNostrEnabled(account) ? '0' : '1')
-      reconcilePeopleNostrInbox()
-    } catch { peopleNostrStatus = 'The inbox preference could not be saved on this device.' }
-  },
-  refresh: () => reconcilePeopleNostrInbox(true),
-  inbox: () => peopleNostrInbox,
-  status: () => peopleNostrStatus,
-  contact: peopleNostrContact,
-  configure: () => void openDmRelaySettings(),
-  canCompose: () => peopleNostrComposeEligible() && nostrMessagePanel?.available === true,
-  invite: inviteToNodeChat,
-  compose: (opener, reply) => nostrMessagePanel?.show(opener, reply),
-  block: peer => {
-    try { setBlocked(peer, true) }
-    catch { peopleNostrStatus = 'This sender could not be blocked on this device.' }
   },
 })
 window.addEventListener('pagehide', () => { peopleNostrSuspended = true; stopPeopleNostrInbox() })
@@ -21830,10 +21925,10 @@ nostrInboxPanel = new NostrMessageInboxPanel(document, {
     openDestination('chats'); renderRooms()
     document.querySelector<HTMLElement>(`li[data-invitation="${id}"] button`)?.focus({ preventScroll: true })
   },
-  reply: (peer, parent) => {
-    if (accountMessageViewEligible() && nostrMessagePanel?.available && !contactIsBlocked(peer)) {
-      nostrMessagePanel.show($('nostrMessageEntry'), { peer, parent })
-    }
+  reply: peer => {
+    if (contactIsBlocked(peer)) return
+    nostrInboxPanel?.close()
+    openDestination('people'); people?.openKey(peer)
   },
 })
 for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEventListener('click', event => {
@@ -21841,25 +21936,19 @@ for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEvent
   if (!event.isTrusted || !canCheckAccountMessages()) return
   ;($('contactsDialog') as HTMLDialogElement).close()
   openDestination('settings'); showSettingsPage('account')
-  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  legacyMessagesPanel?.close()
   nostrInboxPanel?.show($('nostrAccountInboxEntry'), 'account')
 })
-$('nostrInboxEntry').addEventListener('click', event => {
-  if (!requireNostrFeature()) return
-  if (!event.isTrusted || !nostrInboxPanel?.available) return
-  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
-  nostrInboxPanel.show($('nostrInboxEntry'))
+$('nostrInboxSwitch').addEventListener('change', event => {
+  if (!event.isTrusted) { paintNostrInboxSwitch(); return }
+  setPeopleNostrEnabled(($('nostrInboxSwitch') as HTMLInputElement).checked)
 })
-$('nostrMessageEntry').addEventListener('click', event => {
-  if (!requireNostrFeature()) return
-  if (!event.isTrusted || !nostrMessagePanel?.available) return
-  nostrInboxPanel?.close(); legacyMessagesPanel?.close()
-  nostrMessagePanel.show($('nostrMessageEntry'))
-})
+$('nostrInboxRelaysOpen').addEventListener('click', event => { if (event.isTrusted) closeAppSettingsFor(() => void openDmRelaySettings()) })
+$('nostrOpenPeople').addEventListener('click', event => { if (event.isTrusted) openDestination('people') })
 $('legacyMessagesEntry').addEventListener('click', event => {
   if (!requireNostrFeature()) return
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
-  nostrInboxPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel?.close()
   legacyMessagesPanel.show($('legacyMessagesEntry'))
 })
 
@@ -26811,7 +26900,7 @@ function reconcileAccountNetwork(): void {
   if (dockedCall && !dockedCall.ui.roomUsesBothy && !dockedCall.ui.nodeRoom) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
   if (session && !roomUsesBothy && !nodeRoom) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
   // Invalidate ordinary views before any asynchronous teardown can complete.
-  nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel?.close(); legacyMessagesPanel?.close(); people?.closeThreads()
   stopSpryAccountSync()
   bookmarks?.close(); bookmarks = undefined
   readSync?.close(); readSync = undefined
