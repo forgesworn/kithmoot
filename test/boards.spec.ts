@@ -463,7 +463,6 @@ test('Boards replaces Work, edits durable cards and opens several independently 
       await page.locator('#sharedProjectSave').click(); await expect(page.locator('#sharedProjectEditor')).toBeHidden()
     }
     await page.locator('#sharedProjectsClose').click()
-    await expect(page.locator('#railBoards')).toContainText('Boards')
     let frame = await openBoards(page)
     await createBoard(frame, 'Design board'); await addCard(frame, 'Review the design')
     await page.locator('#boardsProject').selectOption({label: 'Design project'}); await page.locator('#boardsRoom').selectOption({label: 'Design chat'}); await page.locator('#boardsAssociate').click()

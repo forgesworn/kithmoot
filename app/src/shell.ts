@@ -3,8 +3,10 @@
  *
  * Three places a person can be (design-calm-shell, section 5.1): Chats,
  * People (signed in with Nostr only) and Boards, and Settings, which has no
- * list of its own and shows in the main pane beside the chats. Each has a
- * list and a main pane. Where the window is
+ * list of its own and shows in the main pane beside the chats. Boards has no
+ * rail or bar button now that each room has its own board: a room's tasks,
+ * Room info › Board in a quiet room, Control or Command+3 and the desktop
+ * View menu open it. Each has a list and a main pane. Where the window is
  * wide enough both show side by side. Where it is not (under 900 px: a phone,
  * a tablet held upright), one shows at a time: the list is the first level,
  * and opening something pushes the main pane over it.
@@ -34,7 +36,7 @@ let level: 'list' | 'detail' = location.hash.length > 1 ? 'detail' : 'list'
 let destinationBeforeSettings: Place = 'chats'
 let levelBeforeSettings: 'list' | 'detail' = 'list'
 let peopleAvailable = false
-const counts: Record<'chats' | 'boards' | 'people', number> = { chats: 0, boards: 0, people: 0 }
+const counts: Record<'chats' | 'people', number> = { chats: 0, people: 0 }
 
 function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null
@@ -150,17 +152,17 @@ export function setPeopleAvailable(available: boolean): void {
   if (!available && destination === 'people') openDestination('chats')
 }
 
-/** The counts on the rail and bottom bar: Chats shows unread people, Boards
- *  what needs you. Zero hides the pill; the spoken name carries the number. */
+/** The counts on the rail and bottom bar: unread chats and unread Nostr
+ *  messages. Zero hides the pill; the spoken name carries the number. */
 export function setCounts(next: Partial<typeof counts>): void {
   Object.assign(counts, next)
-  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['boards', 'railBoards', 'Boards'], ['people', 'railPeople', 'People']] as const) {
+  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['people', 'railPeople', 'People']] as const) {
     const button = el(id), pill = el(id + 'Count')
     if (!button || !pill) continue
     const n = counts[key]
     pill.hidden = n <= 0
     pill.textContent = n > 99 ? '99+' : String(n)
-    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} ${key === 'boards' ? 'need you' : 'unread'}` : label)
+    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} unread` : label)
   }
 }
 

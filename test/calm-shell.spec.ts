@@ -8,7 +8,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings, openNewRoomForm, openRoomDetails, openMember, INSTRUMENT, SYNTHETIC_MIC, inbound, join } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings, openNewRoomForm, openRoomDetails, openMember, openBoardsDestination, INSTRUMENT, SYNTHETIC_MIC, inbound, join } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -159,8 +159,10 @@ test('at 390 by 844 the bottom bar belongs to the list level: labelled, 44 px, g
     await expect(bar).toBeVisible()
     const bounds = await box(page, '#rail')
     expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(843)
-    // Chats and Boards, with their words showing; People is for a sign-in.
-    for (const name of ['Chats', 'Boards']) {
+    // Chats, with its word showing; People is for a sign-in, and Boards
+    // lives in each room now, so the bar has none.
+    await expect(bar.getByRole('button', { name: 'Boards' })).toHaveCount(0)
+    for (const name of ['Chats']) {
       const item = bar.getByRole('button', { name, exact: true })
       await expect(item).toBeVisible()
       await expect(item.locator('.railLabel')).toBeVisible()
@@ -246,7 +248,9 @@ test('Ctrl+K finds a chat, typing filters, Ctrl+1 and 3 switch destinations and 
     await expect(page.locator('#roomList .roomRow')).toHaveCount(4)
     // Destinations from the keyboard.
     await page.keyboard.press('Control+3')
-    await expect(page.locator('#railBoards')).toHaveAttribute('aria-current', 'page')
+    await expect(page.locator('html')).toHaveAttribute('data-destination', 'boards')
+    // Boards has no rail button, so no rail item claims to be the page.
+    await expect(page.locator('#rail [aria-current="page"]')).toHaveCount(0)
     await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
     await page.keyboard.press('Control+1')
@@ -399,7 +403,8 @@ for (const scheme of ['dark', 'light'] as const) {
 test('axe finds nothing on Boards at 1440, and Boards shows in the pane with its two tabs', async ({ browser, baseURL }) => {
   const { context, page } = await account(browser, baseURL!, { width: 1440, height: 900 })
   try {
-    await page.locator('#railBoards').click()
+    await expect(page.locator('#rail').getByRole('button', { name: 'Boards' })).toHaveCount(0)
+    await openBoardsDestination(page)
     const panel = page.locator('#workspaceWorkPanel')
     await expect(panel).toBeVisible()
     // In the main pane, not over it.
@@ -430,7 +435,7 @@ test('in forced colours the selected rail item and the selected chat row keep a 
     await expect(row).toHaveCount(1)
     await expect.poll(() => row.evaluate(el => { const s = getComputedStyle(el); return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 1 })).toBe(true)
     const item = await page.locator('#railChats').evaluate(el => {
-      const selected = getComputedStyle(el), other = getComputedStyle(document.getElementById('railBoards')!)
+      const selected = getComputedStyle(el), other = getComputedStyle(document.getElementById('railMetadata')!)
       return { background: selected.backgroundColor, otherBackground: other.backgroundColor, color: selected.color, otherColor: other.color }
     })
     expect(item.background, 'the selected rail item is filled').not.toBe(item.otherBackground)

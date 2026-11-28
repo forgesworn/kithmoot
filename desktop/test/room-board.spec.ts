@@ -50,10 +50,8 @@ test('the desktop app opens the room’s board from Boards, two people share it,
   try {
     const ada = await person('Ada', link)
     people.push(ada)
-    // One click from the rail, with no account: the first tab is the room's.
-    await ada.page.locator('#railBoards').click()
-    await expect(ada.page.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
-    await expect(ada.page.locator('#workspaceRoomTab')).toHaveText('Hall committee')
+    // One click from the chat header, with no account: the room's own board.
+    await ada.page.locator('#roomBoardButton').click()
     await expect(board(ada.page).getByRole('heading', { name: 'To do', exact: true })).toBeVisible()
     const composer = board(ada.page).getByRole('textbox', { name: 'Add a card to To do', exact: true })
     await composer.fill('Book the hall')
@@ -64,7 +62,7 @@ test('the desktop app opens the room’s board from Boards, two people share it,
     // Bob arrives afterwards, in another copy of the app, and finds it.
     const bob = await person('Bob', link)
     people.push(bob)
-    await bob.page.locator('#railBoards').click()
+    await bob.page.locator('#roomBoardButton').click()
     await expect(card(bob.page, 'Book the hall')).toBeVisible()
     // The frame is an ordinary sandboxed page: no Node, no service worker.
     const frame = await board(bob.page).locator('#app').evaluate(async () => ({

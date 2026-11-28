@@ -20780,7 +20780,7 @@ function openBoardsPanel(from: HTMLElement): void {
   const identity = identityGeneration, account = nostrSession
   void loadBoardsPanel().then(panel => {
     if (identity !== identityGeneration || account !== nostrSession) return
-    panel.open(from.isConnected ? from : $('railBoards'))
+    panel.open(from.isConnected ? from : $('railChats'))
   }).catch(error => setStatus(describeError(error)))
 }
 {
@@ -21087,20 +21087,20 @@ async function showWorkspaceWork(from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
-  panel.show(from.isConnected ? from : $('railBoards'))
+  panel.show(from.isConnected ? from : $('railChats'))
 }
 async function openWorkspaceWork(mode: 'inbox' | 'work', from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
-  panel.open(mode, from.isConnected ? from : $('railBoards'))
+  panel.open(mode, from.isConnected ? from : $('railChats'))
 }
 // Boards is a destination: the panel of what needs you and what is on the
 // boards sits in the main pane, and is open for as long as it is showing.
 document.addEventListener('shell:destination', event => {
   const destination = (event as CustomEvent<{ destination: string }>).detail.destination
   if (destination !== 'chats') closeRoomBoardView()
-  if (destination === 'boards') void showWorkspaceWork($('railBoards')).catch(error => setStatus(describeError(error)))
+  if (destination === 'boards') void showWorkspaceWork($('railChats')).catch(error => setStatus(describeError(error)))
   else if (destination !== 'settings') workspaceWork?.hide()
 })
 

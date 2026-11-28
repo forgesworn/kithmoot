@@ -615,12 +615,17 @@ export async function openNewProject(page: Page): Promise<void> {
   await page.locator('#newMenuProject').click()
 }
 
-/** The Boards destination: what needs you, and what is on the boards. */
+/** The Boards destination: what needs you, and what is on the boards. It
+ *  has no rail or bar button since each room has its own board, so this
+ *  takes the keyboard's way there, Control or Command+3. A press that lands
+ *  while a dialog is still up is ignored, so it is repeated until the pane
+ *  is there, as a person would. */
 export async function openBoardsDestination(page: Page): Promise<void> {
-  // Inside a room on a phone the bar is gone: back to the list level first.
-  if (!await page.locator('#railBoards').isVisible()) await page.locator('#backToRooms').click()
-  await page.locator('#railBoards:visible').click()
-  await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
+  const panel = page.locator('#workspaceWorkPanel')
+  await expect(async () => {
+    if (!await panel.isVisible()) await page.keyboard.press('ControlOrMeta+3')
+    await expect(panel).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 /** Your own boards (the embedded boards panel) from the Boards destination. */
