@@ -24,21 +24,42 @@ async function openPeople(page: Page): Promise<void> {
   await expect(page.locator('#peopleList')).toBeVisible()
 }
 
+/** Start (or open) the private chat with the person whose thread is showing. */
+async function startPrivateChat(page: Page): Promise<void> {
+  await page.locator('#peopleInvite').click()
+  await page.getByRole('menuitem', { name: /^A private chat/ }).click()
+}
+
+/** Open the Contact info panel for the person whose thread is showing. */
+async function openContactInfo(page: Page): Promise<void> {
+  await page.locator('#peoplePaneTitle button').click()
+  await expect(page.locator('.peopleInfo')).toBeVisible()
+}
+
 /** Loading a saved invitation does not decrypt it or join its room. */
 async function openPrivateChatCopy(page: Page): Promise<void> {
   await expect(page.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
   await openSettings(page, 'Account')
-  await page.locator('#nostrInboxEntry').click()
+  await page.locator('#nostrAccountInboxEntry').click()
   await page.locator('#nostrInboxLoad').click()
-  await page.locator('.ordinaryMessageOpen').click()
+  await expect(page.locator('.ordinaryMessageOpen').first()).toBeVisible()
+  // A new invitation arrives after its one-line note: open both, the invitation is the one with a review.
+  const closed = page.locator('.ordinaryMessageOpen:visible:enabled')
+  const review = page.locator('.ordinaryInvitationReview:visible')
+  for (let tries = 0; tries < 4 && await review.count() === 0; tries++) {
+    if (await closed.count() === 0) { await page.waitForTimeout(500); continue }
+    await closed.first().click()
+    await page.waitForTimeout(600)
+  }
 }
 
 /** Invitations share the ordinary inbox's explicit decryption and review. */
 async function reviewPrivateChatInvitation(page: Page): Promise<void> {
   await openPrivateChatCopy(page)
-  await expect(page.locator('.ordinaryInvitationReview')).toBeVisible()
+  const review = page.locator('.ordinaryInvitationReview:visible')
+  await expect(review).toHaveCount(1)
   await expect(page.locator('#roomArea')).toBeHidden()
-  await page.locator('.ordinaryInvitationReview').click()
+  await review.click()
 }
 
 /** An account's public relay list for private invitations, a follow list
@@ -76,10 +97,10 @@ test('People lists the people you follow, and Message starts a private chat with
     await alice.locator('#peopleQuery').fill('')
 
     await rows.getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await expect(alice.locator('#peoplePane h2')).toHaveText('Bob on Nostr')
-    await expect(alice.locator('#peopleMessage')).toBeEnabled()
+    await expect(alice.locator('#peoplePaneTitle')).toHaveText('Bob on Nostr')
+    await expect(alice.locator('#peopleInvite')).toBeEnabled()
     await alice.screenshot({ path: test.info().outputPath('people-following.png') })
-    await alice.locator('#peopleMessage').click()
+    await startPrivateChat(alice)
     await expect(alice.locator('#roomArea')).toBeVisible()
     expect(parseRoomLink(alice.url()).policy?.members?.sort()).toEqual([a, b].sort())
     // Called by the person, not "Private: …" (design-calm-shell 6.2).
@@ -126,7 +147,9 @@ test('People finds a saved private chat by its local name without a card or foll
     await page.getByRole('searchbox', { name: 'Find a person' }).fill('ellis')
     await page.locator('#peopleRows').getByRole('button', { name: /^Ellis/ }).click({ timeout: 5_000 })
     await expect(page.locator('#peoplePaneTitle')).toHaveText('Ellis')
-    await expect(page.getByRole('heading', { name: 'Private chat', exact: true })).toBeVisible()
+    await expect(page.locator('#peopleRows li[data-person]').filter({ hasText: 'Ellis' })).toContainText('Private chat')
+    await page.locator('#peopleMore').click()
+    await expect(page.getByRole('menuitem', { name: 'Open private chat' })).toBeVisible()
   } finally { await context.close() }
 })
 
@@ -156,32 +179,27 @@ test('People searches public names explicitly and prepares a Nostr message to th
     await openPeople(page)
     const search = page.getByRole('searchbox', { name: 'Find a person' })
     await search.fill(name)
-    await expect(page.locator('#peopleStatus')).toHaveText('No matching contacts or conversations.')
+    await expect(page.locator('#peopleSearchNostr')).toBeVisible()
     expect(requests).toHaveLength(0)
-    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    await page.locator('#peopleSearchNostr').click()
     const results = page.locator('#peopleRows')
-    await expect(results.getByRole('heading', { name: 'Nostr results' })).toBeVisible()
+    await expect(results.getByRole('heading', { name: 'On Nostr' })).toBeVisible()
     expect(requests).toEqual([{ kinds: [0], search: name, limit: 16 }])
     await expect.poll(() => activeSearches.size).toBe(0)
     await expect(results.getByRole('button', { name: /About only/ })).toHaveCount(0)
     const recipient = shortNpub(peer)
     await results.getByRole('button', { name: `${name}, ${recipient}`, exact: true }).click()
-    await page.getByRole('button', { name: 'Message on Nostr', exact: true }).click()
-    await expect(page.locator('#nostrMessageRecipient')).toHaveValue(npubEncode(peer))
-    const recipientLabel = page.locator('#nostrMessageTo')
-    await expect(recipientLabel).toBeVisible()
-    await expect(recipientLabel).toContainText(recipient)
-    await expect(page.locator('#nostrMessageReview')).toBeHidden()
-    await expect(page.getByRole('button', { name: 'Send encrypted message', exact: true })).toBeVisible()
+    await expect(page.locator('#peoplePaneTitle')).toHaveText(name)
+    // The thread is ready to write to the selected key, with nothing sent.
+    await expect(page.getByRole('textbox', { name: `Message ${name} on Nostr` })).toBeVisible()
   } finally { publisher.close(); await context.close() }
 })
 
-test('People resolves a pasted npub to a signed profile and remembers it for a follow', async ({ browser, baseURL }) => {
+test('pasted npub opens a thread, with its signed profile name and no search', async ({ browser, baseURL }) => {
   const key = generateSecretKey(), peerKey = generateSecretKey(), peer = getPublicKey(peerKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
   const context = await accountWithProfiles(browser, baseURL!, key)
   const name = 'Ellis Exact Profile'
-  const account = getPublicKey(key)
   try {
     await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [peer], new Map())
     const page = await context.newPage()
@@ -197,22 +215,23 @@ test('People resolves a pasted npub to a signed profile and remembers it for a f
     const row = page.locator(`#peopleRows li[data-person="${peer}"]`)
     await expect(row).toContainText(shortNpub(peer))
     const search = page.getByRole('searchbox', { name: 'Find a person' })
-    await search.fill('-' + npubEncode(peer))
-    await expect(row).toBeVisible()
-    expect(requests).toHaveLength(0)
     const profile = finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
       content: JSON.stringify({ display_name: name }) }, peerKey)
     await publisher.publish(profile)
-    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
-    // The name can arrive through the existing profile subscription first.
-    await expect.poll(() => requests).toEqual([{ kinds: [0], authors: [peer], limit: 4 }])
+    await search.fill('-' + npubEncode(peer))
+    await expect(row).toBeVisible()
+    expect(requests).toHaveLength(0)
+    // A pasted key needs no search: its row is the only one, and Enter opens the thread.
+    await expect(page.locator('#peopleSearchNostr')).toHaveCount(0)
+    await expect(page.locator('#peopleRows li[data-person]')).toHaveCount(1)
     await expect(row).toContainText(name)
+    await search.press('Enter')
+    await expect(page.locator('#peopleThread')).toBeVisible()
+    expect(requests).toHaveLength(0)
+    const back = page.getByRole('button', { name: 'Back to people' })
+    if (await back.isVisible()) await back.click()
     await search.fill(name)
     await expect(row).toBeVisible()
-    await expect.poll(() => page.evaluate(account => {
-      const stored = JSON.parse(localStorage.getItem('kithmoot.people-profiles.v1.' + account) ?? '[]')
-      return stored.map((row: { event: { id: string } }) => row.event.id)
-    }, account)).toContain(profile.id)
   } finally { publisher.close(); await context.close() }
 })
 
@@ -231,7 +250,7 @@ test('an invitation from somebody you follow carries their name, before People h
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await alice.locator('#peopleMessage').click()
+    await startPrivateChat(alice)
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
@@ -252,7 +271,7 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await alice.locator('#peopleMessage').click()
+    await startPrivateChat(alice)
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
@@ -268,7 +287,7 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
     // invitation. An empty list before Load alone would not prove it.
     await openPrivateChatCopy(bob)
     await expect(bob.locator('#nostrInboxList')).toContainText('This invitation was already dismissed. It has not been restored.')
-    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
+    await expect(bob.locator('.ordinaryInvitationReview:visible')).toHaveCount(0)
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
     await expect(bob.locator('#roomArea')).toBeHidden()
   } finally { publisher.close(); await ac.close(); await bc.close() }
@@ -285,7 +304,7 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await alice.locator('#peopleMessage').click()
+    await startPrivateChat(alice)
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     // Alice is a stranger to Bob: named by her key, and blocked from the row's ⋯.
@@ -315,7 +334,7 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
     await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
     await openPrivateChatCopy(bob)
     await expect(bob.locator('#nostrInboxList')).toContainText('This invitation was already dismissed. It has not been restored.')
-    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
+    await expect(bob.locator('.ordinaryInvitationReview:visible')).toHaveCount(0)
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
@@ -335,6 +354,7 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!)
     await openPeople(bob)
     await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
+    await openContactInfo(bob)
     await bob.locator('#peopleBlock').scrollIntoViewIfNeeded()
     await bob.screenshot({ path: test.info().outputPath('contact-block.png') })
     await bob.locator('#peopleBlock').click()
@@ -346,14 +366,14 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await alice.locator('#peopleMessage').click()
+    await startPrivateChat(alice)
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     // Load the actual delivered copy and explicitly request Open. An empty
     // invitation list before reading would not prove the blocked send refused.
     await openPrivateChatCopy(bob)
     await expect(bob.locator('#nostrInboxList')).toContainText('This copy could not be opened or kept.')
-    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
+    await expect(bob.locator('.ordinaryInvitationReview:visible')).toHaveCount(0)
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
     await bob.locator('#nostrInboxClose').click()
     await openSettings(bob, 'Privacy')
@@ -362,6 +382,7 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     // Back in People, with Block offered again.
     await openPeople(bob)
     await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
+    await openContactInfo(bob)
     await expect(bob.locator('#peopleBlock')).toContainText('Block Alice on Nostr')
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
@@ -385,6 +406,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleInvite').click()
+    await alice.getByRole('menuitem', { name: /^A room/ }).click()
     await expect(alice.locator('#inviteToRoom')).toBeVisible()
     expect(parseRoomLink(alice.url()).policy?.members).toContain(b)
     await alice.locator('#inviteToRoomList').getByRole('radio', { name: /^Saturday walk/ }).check()
@@ -396,6 +418,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
     // device: sent and not joined yet, and no room shared so far.
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('.peopleHeaderName').click()
     const sent = alice.locator('#peopleSentInvitations')
     await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Sent, not joined yet, Today' })).toBeVisible()
     await expect(alice.locator('#peopleSharedRooms')).toHaveCount(0)
@@ -421,18 +444,20 @@ test('Invite from People opens the private chat and sends the room there, sealed
     // Bob's page now says he came, and lists the room the two of them share.
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('.peopleHeaderName').click()
     await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible({ timeout: 30_000 })
     await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible()
     await alice.screenshot({ path: test.info().outputPath('contact-rooms.png') })
 
     // From the private chat, Saturday walk is a room the list watches, and
     // its history holds Bob's message, so the page says the same.
-    await alice.locator('#peoplePane').getByRole('button', { name: 'Bob on Nostr', exact: true }).click()
+    await alice.locator('#peoplePane .contactLink').first().click()
     await expect(alice.locator('#roomWho')).toHaveText('Private chat')
     // Opened, not still opening: a room asked for mid-switch is not switched to.
     await expect(alice.locator('#roomArea')).toHaveJSProperty('inert', false, { timeout: 30_000 })
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('.peopleHeaderName').click()
     await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible({ timeout: 30_000 })
     await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible()
     await alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' }).click()
@@ -452,6 +477,7 @@ test('Check words together from People compares words in the private chat and ma
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await openContactInfo(alice)
     const check = alice.locator('#peopleCheckWords')
     await expect(check).toHaveAccessibleName('Check words together, Not checked yet')
 
@@ -484,6 +510,7 @@ test('Check words together from People compares words in the private chat and ma
     // People says so: the date on his page, and the mark beside his name.
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await openContactInfo(alice)
     await expect(check).toHaveAccessibleName(/^Check words together, Checked on /)
     await expect(alice.locator(`#peopleRows li[data-person="${b}"] .checkedMark`)).toBeVisible()
     await alice.screenshot({ path: test.info().outputPath('contact-checked.png') })
@@ -502,13 +529,13 @@ test('Voice from People opens the private chat and starts a call in it', async (
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await alice.locator('#peopleVoice').click()
+    await alice.getByRole('button', { name: 'Voice call', exact: true }).click()
     await expect(alice.locator('#roomArea')).toBeVisible()
     await expect(alice.locator('#leaveCall')).toBeVisible({ timeout: 30_000 })
   } finally { publisher.close(); await ac.close() }
 })
 
-test('a saved public profile opt-out can be changed inside People', async ({ browser, baseURL }) => {
+test('a saved public profile opt-out is offered back inside People, and only there', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey()
   const ac = await accountDevice(browser, baseURL!, aKey)
   try {
@@ -516,26 +543,22 @@ test('a saved public profile opt-out can be changed inside People', async ({ bro
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
-    await expect(alice.getByRole('switch', { name: 'Public profiles', exact: true })).not.toBeChecked()
+    // The switch lives in Settings; People only offers the way back (P4).
+    await expect(alice.getByRole('switch', { name: 'Public profiles', exact: true })).toHaveCount(0)
     const following = alice.locator('#peopleRows li[data-section="Following"]')
     await expect(following.locator('.note')).toHaveText('Turn on public profiles to see who you follow.')
-    const profileSettings = following.getByRole('button', { name: 'Public profile settings' })
-    await profileSettings.press('Enter')
-    await expect(alice.getByRole('dialog', { name: 'Profile pictures and names' })).toBeVisible()
-    await expect(alice.locator('#lookupProfiles')).toBeFocused()
-    await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
-    await alice.keyboard.press('Escape')
-    await expect(profileSettings).toBeFocused()
-    await expect(alice.locator('#peopleEmpty')).toBeVisible()
     await alice.getByRole('searchbox', { name: 'Find a person' }).fill('Ellis')
-    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeHidden()
-    await alice.getByRole('switch', { name: 'Public profiles', exact: true }).check()
-    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeVisible()
+    await expect(alice.locator('#peopleSearchNostr')).toBeHidden()
+    await alice.getByRole('searchbox', { name: 'Find a person' }).fill('')
+    await following.getByRole('button', { name: 'Turn on public profiles', exact: true }).click()
     expect(await alice.evaluate(() => localStorage.getItem('kithmoot.profiles.enabled'))).toBe('true')
+    await expect(following.getByRole('button', { name: 'Turn on public profiles', exact: true })).toBeHidden()
+    await alice.getByRole('searchbox', { name: 'Find a person' }).fill('Ellis')
+    await expect(alice.locator('#peopleSearchNostr')).toBeVisible()
   } finally { await ac.close() }
 })
 
-test('a long People list scrolls below the switch and search, never over their words', async ({ browser, baseURL }) => {
+test('a long People list scrolls below the search and inbox line, never over their words', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey(), longKey = generateSecretKey(), long = getPublicKey(longKey)
   const follows = [long, ...Array.from({ length: 59 }, () => getPublicKey(generateSecretKey()))]
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
@@ -601,7 +624,7 @@ test('a long People list scrolls below the switch and search, never over their w
   } finally { publisher.close(); await ac.close() }
 })
 
-test('public profiles start on and the People switch shares the saved Settings preference', async ({ browser, baseURL }) => {
+test('public profiles start on, the Settings switch rules People, and People offers the way back', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey(), bKey = generateSecretKey(), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
   const ac = await accountDevice(browser, baseURL!, aKey)
@@ -610,22 +633,19 @@ test('public profiles start on and the People switch shares the saved Settings p
     const alice = await ac.newPage()
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
-    const toggle = alice.getByRole('switch', { name: 'Public profiles', exact: true })
-    const profileSettings = alice.getByRole('button', { name: 'Public profile settings' })
-    await expect(toggle).toBeChecked()
-    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
-    await expect(profileSettings).toBeHidden()
-    await toggle.uncheck()
-    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toHaveCount(0)
+    const row = alice.locator(`#peopleRows li[data-person="${b}"]`)
+    const turnOn = alice.getByRole('button', { name: 'Turn on public profiles', exact: true })
+    await expect(row).toContainText('Default profile')
+    await expect(turnOn).toBeHidden()
+    await openProfileSettings(alice)
+    await alice.locator('#lookupProfiles').uncheck()
+    await closeProfileSettings(alice)
+    await openPeople(alice)
+    await expect(row).toHaveCount(0)
     await alice.reload(); await openPeople(alice)
-    await expect(toggle).not.toBeChecked()
-    await profileSettings.click()
-    await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
-    await alice.locator('#lookupProfiles').check()
-    await alice.locator('#profileSettingsClose').click()
-    await expect(alice.getByRole('heading', { name: 'People', exact: true })).toBeFocused()
-    await expect(toggle).toBeChecked()
-    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
+    await expect(turnOn).toBeVisible()
+    await turnOn.click()
+    await expect(row).toContainText('Default profile')
     await alice.screenshot({ path: test.info().outputPath('people-public-profiles-phone.png'), fullPage: true })
     await openProfileSettings(alice)
     await alice.locator('#profileAccountNetwork').click()
@@ -633,9 +653,7 @@ test('public profiles start on and the People switch shares the saved Settings p
     await alice.locator('#accountNetworkClose').click()
     await closeProfileSettings(alice)
     await openPeople(alice)
-    await expect(toggle).toBeChecked()
-    await expect(toggle).toBeDisabled()
     await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Public profiles are paused while Nostr networking is off.')
-    await expect(profileSettings).toBeHidden()
+    await expect(turnOn).toBeHidden()
   } finally { publisher.close(); await ac.close() }
 })

@@ -6,13 +6,15 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openSettings } from './browser.js'
+import { openNpubThread } from './people-scenario.js'
 
 // Built KithMoot UI against the existing synthetic relay/provider fixture.
-// This is not actual external Coracle receipt or the complete C04 matrix.
-async function showComposer(page: Page) {
-  await openSettings(page, 'Account')
-  await page.getByRole('button', { name: 'New Nostr message', exact: true }).click()
-  await expect(page.locator('#nostrMessageDialog')).toBeVisible()
+// Ordinary Nostr messages are written in People's thread. This is not actual
+// external Coracle receipt or the complete C04 matrix.
+const composer = (page: Page, name?: string) => page.getByRole('textbox', { name: name ?? /^Message .* on Nostr$/ })
+async function showComposer(page: Page, pubkey: string) {
+  await openNpubThread(page, npubEncode(pubkey), pubkey)
+  await expect(composer(page)).toBeVisible()
 }
 function publishedWraps(page: Page) {
   const events: Event[] = []
@@ -29,25 +31,17 @@ async function inbox(pool: NostrRelayPool, key: Uint8Array, baseURL: string) {
   await pool.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), content: '',
     tags: [['relay', relay.href]] }, key))
 }
-test('Account composer shows the public relay route and checks inboxes before explicitly sending', async ({ browser, baseURL }) => {
+test('People sends an ordinary Nostr message to a pasted key, with a copy for the account', async ({ browser, baseURL }) => {
   const sender = generateSecretKey(), recipient = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender)
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await inbox(pool, sender, baseURL!); await inbox(pool, recipient, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
-    await signInAccount(page, baseURL!); await showComposer(page)
-    await expect(page.locator('#nostrMessageLane')).toHaveText('Encrypted · Public Nostr relays')
-    await expect(page.locator('#nostrMessageWarning')).toContainText('Relays can see the recipient’s public key')
-    await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
-    await page.locator('#nostrMessageText').fill('An ordinary Nostr message, without a room invitation')
-    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Send encrypted message', exact: true })).toBeVisible()
-    await expect(page.locator('#nostrMessageSummary')).toContainText(npubEncode(getPublicKey(recipient)))
+    await signInAccount(page, baseURL!); await showComposer(page, getPublicKey(recipient))
+    await composer(page).fill('An ordinary Nostr message, without a room invitation')
     expect(events).toEqual([])
-    await page.screenshot({ path: test.info().outputPath('public-warning-before-send.png') })
-    await page.getByRole('button', { name: 'Send encrypted message', exact: true }).click()
-    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
-    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
+    await composer(page).press('Enter')
+    await expect(page.locator('#peopleThread')).toContainText('Sent to their inbox relay')
     const unique = [...new Map(events.map(event => [event.id, event])).values()]
     expect(unique).toHaveLength(2); expect(unique.every(event => event.kind === 1059)).toBe(true)
     const received = unique.find(event => event.tags[0]?.[1] === getPublicKey(recipient))!
@@ -55,47 +49,42 @@ test('Account composer shows the public relay route and checks inboxes before ex
     expect(unwrapEvent(received, recipient)).toEqual(unwrapEvent(copy, sender))
     expect(unwrapEvent(received, recipient)).toMatchObject({ kind: 14, pubkey: getPublicKey(sender),
       tags: [['p', getPublicKey(recipient)]], content: 'An ordinary Nostr message, without a room invitation' })
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
-    await expect(page.locator('#nostrMessageText')).toHaveValue('')
-    await expect(page.locator('#nostrMessageEntry')).toBeFocused()
+    await expect(composer(page)).toHaveValue('')
   } finally { pool.close(); await context.close() }
 })
-test('missing recipient inbox holds the message and editing a reviewed draft removes Send', async ({ browser, baseURL }) => {
+test('a missing recipient inbox holds the message until the person publishes one', async ({ browser, baseURL }) => {
   const sender = generateSecretKey(), recipient = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender)
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await inbox(pool, sender, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
-    await signInAccount(page, baseURL!); await showComposer(page)
-    await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
-    await page.locator('#nostrMessageText').fill('Held for inbox configuration')
-    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
-    await expect(page.locator('#nostrMessageState')).toHaveText('Not sent')
-    await expect(page.locator('#nostrMessageStatus')).toContainText('This person needs usable inbox relays')
-    await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])
+    await signInAccount(page, baseURL!); await showComposer(page, getPublicKey(recipient))
+    await composer(page).fill('Held for inbox configuration'); await composer(page).press('Enter')
+    await expect(page.locator('#peopleThread')).toContainText('Not sent')
+    await expect(page.locator('#peopleThread')).toContainText('This person needs usable inbox relays')
+    expect(events).toEqual([])
     await inbox(pool, recipient, baseURL!)
-    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
-    await expect(page.locator('#nostrMessageSend')).toBeVisible()
-    await page.locator('#nostrMessageText').fill('A changed draft needs a new review')
-    await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.locator('#peopleThread')).toContainText('Sent to their inbox relay')
+    expect(events.filter(event => event.tags[0]?.[1] === getPublicKey(recipient)).length).toBeGreaterThan(0)
   } finally { pool.close(); await context.close() }
 })
-test('a closed public draft stays cleared after sign-out without publishing', async ({ browser, baseURL }) => {
-  const context = await accountDevice(browser, baseURL!), recipient = generateSecretKey()
+test('signing out with a typed message publishes nothing and keeps nothing', async ({ browser, baseURL }) => {
+  const sender = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender), recipient = generateSecretKey()
+  const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
+    await inbox(pool, sender, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
-    await signInAccount(page, baseURL!); await showComposer(page)
-    await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
-    await page.locator('#nostrMessageText').fill('Only on this device')
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await signInAccount(page, baseURL!); await showComposer(page, getPublicKey(recipient))
+    await composer(page).fill('Only on this device')
     await openSettings(page, 'Account'); await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-    await expect(page.locator('#nostrMessageDialog')).not.toBeVisible()
-    await expect(page.locator('#nostrMessageText')).toHaveValue(''); expect(events).toEqual([])
-  } finally { await context.close() }
+    await expect(page.locator('#peopleThread')).not.toBeVisible()
+    expect(events).toEqual([])
+  } finally { pool.close(); await context.close() }
 })
 
-for (const stage of ['encrypt', 'seal'] as const) for (const boundary of ['close', 'sign-out', 'home-departure', 'settings-back', 'settings-destination'] as const) {
-  test(`an actual pending ${stage} provider cannot send or restore the public draft after ${boundary}`, async ({ browser, baseURL }) => {
+for (const stage of ['encrypt', 'seal'] as const) for (const boundary of ['sign-out', 'leave-people', 'settings'] as const) {
+  test(`an actual pending ${stage} provider cannot send the message after ${boundary}`, async ({ browser, baseURL }) => {
     const sender = generateSecretKey(), recipient = generateSecretKey(), text = 'Never publish this cancelled ordinary message'
     let release!: () => void, entered = false, encrypts = 0, seals = 0, providerResult: string | undefined
     const ciphertexts = new Set<string>()
@@ -121,30 +110,14 @@ for (const stage of ['encrypt', 'seal'] as const) for (const boundary of ['close
     try {
       await inbox(pool, sender, baseURL!); await inbox(pool, recipient, baseURL!)
       const page = await context.newPage(), events = publishedWraps(page)
-      await signInAccount(page, baseURL!); await showComposer(page)
-      await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
-      await page.locator('#nostrMessageText').fill(text); await page.locator('#nostrMessageReview').click()
-      await expect(page.locator('#nostrMessageSend')).toBeVisible()
-      await page.locator('#nostrMessageSend').click(); await expect.poll(() => entered).toBe(true)
-      expect(events).toEqual([]); await expect(page.locator('#nostrMessageText')).toBeDisabled()
-      if (boundary === 'close') await page.locator('#nostrMessageClose').click()
-      // These controls exercise the actual root handlers while the modal
-      // is open. As in legacy acceptance, programmatic activation deliberately
-      // bypasses pointer modal blocking; no account/state/app API is replaced.
-      else if (boundary === 'sign-out') await page.locator('#signOut').evaluate(button => (button as HTMLButtonElement).click())
-      else if (boundary === 'home-departure') await page.locator('#createRoomForm').evaluate(form => (form as HTMLFormElement).requestSubmit())
-      else if (boundary === 'settings-back') await page.locator('#settingsBack').evaluate(button => (button as HTMLButtonElement).click())
-      else await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
-      await expect(page.locator('#nostrMessageDialog')).not.toBeVisible()
-      await expect(page.locator('#nostrMessageText')).toHaveValue('')
-      if (boundary === 'sign-out') {
-        await expect(page.locator('#nostrMessageEntry')).toHaveJSProperty('hidden', true)
-        await expect(page.locator('#status')).toContainText("Signed out. This forgets this browser's connection to your signer")
-        expect(await page.evaluate(() => ['signet:login.pubkey', 'signet:login.method', 'signet:login.authEvent'].map(key => localStorage.getItem(key)))).toEqual([null, null, null])
-      } else if (boundary === 'close' || boundary === 'settings-back' || boundary === 'settings-destination') {
-        await showComposer(page)
-        await page.locator('#nostrMessageText').fill('A new draft must survive the old provider result')
-      }
+      await signInAccount(page, baseURL!); await showComposer(page, getPublicKey(recipient))
+      await composer(page).fill(text); await composer(page).press('Enter')
+      await expect.poll(() => entered).toBe(true)
+      expect(events).toEqual([])
+      // The real root handlers run while the provider is still waiting.
+      if (boundary === 'sign-out') await page.locator('#signOut').evaluate(button => (button as HTMLButtonElement).click())
+      else if (boundary === 'leave-people') await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
+      else await openSettings(page, 'Account')
       release()
       // Observe the browser-side provider promise completion, not merely the
       // Node callback returning. Let its SDK handoff/microtasks settle too.
@@ -155,17 +128,8 @@ for (const stage of ['encrypt', 'seal'] as const) for (const boundary of ['close
       }, { stage, result: providerResult })).toBe(true)
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
       expect(events.filter(event => event.kind === 4)).toEqual([])
-      // A home departure may legitimately publish room traffic. Only ordinary
-      // envelopes for this fresh non-member recipient can be this draft.
       expect(events.filter(event => event.kind === 1059 && event.tags.some(tag => tag[0] === 'p' && tag[1] === getPublicKey(recipient)))).toEqual([])
       expect(seals).toBe(stage === 'seal' ? 1 : 0)
-      if (boundary === 'close' || boundary === 'settings-back' || boundary === 'settings-destination') {
-        await expect(page.locator('#nostrMessageText')).toHaveValue('A new draft must survive the old provider result')
-        await expect(page.locator('#nostrMessageSend')).toBeHidden()
-      } else {
-        await expect(page.locator('#nostrMessageDialog')).not.toBeVisible()
-        await expect(page.locator('#nostrMessageText')).toHaveValue('')
-      }
     } finally { release(); pool.close(); await context.close() }
   })
 }
