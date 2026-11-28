@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.191",
+  "currentRelease": "0.1.192",
   "releases": [
     {
-      "version": "0.1.191",
+      "version": "0.1.192",
       "updateTo": {
-        "version": "0.1.191",
-        "name": "0.1.191",
-        "pub_date": "2026-11-27T00:00:00Z",
-        "notes": "Choose a guest name or connect Nostr before asking to join. Share your own profile privately, change your guest name in the room and use the updated meeting host controls.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.191/KithMoot-0.1.191-mac-arm64.zip",
-        "sha256": "9af9c72979b071534fd1406be972ef8bff2cf284e4b5517050d9e414d3c7eae2",
-        "size": 200424296
+        "version": "0.1.192",
+        "name": "0.1.192",
+        "pub_date": "2026-11-28T00:00:00Z",
+        "notes": "People reads well at large text, boards open from each room, Room info closes when you move on and room tasks open reliably while a room joins.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.192/KithMoot-0.1.192-mac-arm64.zip",
+        "sha256": "5089992992d5a9abb909fa4c65db06832815bdbdb7d567a73033a1b1efd9811d",
+        "size": 200424741
       }
     }
   ]

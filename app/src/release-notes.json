@@ -1,13 +1,14 @@
 {
-  "id": "2026-11-27-room-profiles",
-  "date": "27 November 2026",
-  "title": "Private participant profiles and clearer room controls",
+  "id": "2026-11-28-people-and-boards",
+  "date": "28 November 2026",
+  "title": "People that reads well at any text size, and boards from each room",
   "changes": [
-    "Choose a guest name or connect your Nostr account before asking to join a hosted room.",
-    "Guests can change their name in Room info. The room sees the change straight away.",
-    "Share your own signed Nostr profile and an optional photo through the encrypted room.",
-    "Meeting hosts can mute a participant and move them to the audience, or remove them from the room.",
-    "Start sharing your screen from chat with your microphone and camera off."
+    "People no longer draws the Nostr messages button over the public profiles note, and long names end neatly.",
+    "On a short screen the whole People column scrolls, so the switch, search and list stay usable.",
+    "Boards now open from each room rather than from the side rail.",
+    "The side rail and its buttons grow with larger text sizes.",
+    "Room info closes when you move to another part of the app.",
+    "A room's tasks open reliably while the room is still joining."
   ],
-  "desktopVersion": "0.1.191"
+  "desktopVersion": "0.1.192"
 }
