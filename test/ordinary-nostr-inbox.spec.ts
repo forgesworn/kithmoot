@@ -438,6 +438,8 @@ test('ordinary incoming text is literal, retained encrypted and replied to throu
     expect(published).toEqual([])
     await reply.press('Enter')
     await expect(page.locator('#peopleThread')).toContainText('Sent to their inbox relay')
+    await expect(page.locator('#peopleThread')).not.toContainText('Syncing your copy')
+    await expect.poll(() => new Set(published.map(event => event.id)).size).toBe(2)
     const received = [...new Map(published.map(event => [event.id, event])).values()]
     expect(received).toHaveLength(2)
     const toPeer = received.find(event => event.tags[0]?.[1] === getPublicKey(peer))!

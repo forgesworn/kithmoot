@@ -42,6 +42,7 @@ test('People sends an ordinary Nostr message to a pasted key, with a copy for th
     expect(events).toEqual([])
     await composer(page).press('Enter')
     await expect(page.locator('#peopleThread')).toContainText('Sent to their inbox relay')
+    await expect.poll(() => new Set(events.map(event => event.id)).size).toBe(2)
     const unique = [...new Map(events.map(event => [event.id, event])).values()]
     expect(unique).toHaveLength(2); expect(unique.every(event => event.kind === 1059)).toBe(true)
     const received = unique.find(event => event.tags[0]?.[1] === getPublicKey(recipient))!

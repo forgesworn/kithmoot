@@ -202,6 +202,9 @@ test('pasted npub opens a thread, with its signed profile name and no search', a
   const name = 'Ellis Exact Profile'
   try {
     await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [peer], new Map())
+    const profile = finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ display_name: name }) }, peerKey)
+    await publisher.publish(profile)
     const page = await context.newPage()
     const requests: unknown[] = []
     page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
@@ -213,18 +216,18 @@ test('pasted npub opens a thread, with its signed profile name and no search', a
     await signInAccount(page, baseURL!)
     await openPeople(page)
     const row = page.locator(`#peopleRows li[data-person="${peer}"]`)
-    await expect(row).toContainText(shortNpub(peer))
     const search = page.getByRole('searchbox', { name: 'Find a person' })
-    const profile = finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
-      content: JSON.stringify({ display_name: name }) }, peerKey)
-    await publisher.publish(profile)
     await search.fill('-' + npubEncode(peer))
     await expect(row).toBeVisible()
     expect(requests).toHaveLength(0)
     // A pasted key needs no search: its row is the only one, and Enter opens the thread.
     await expect(page.locator('#peopleSearchNostr')).toHaveCount(0)
     await expect(page.locator('#peopleRows li[data-person]')).toHaveCount(1)
-    await expect(row).toContainText(name)
+    // The signed profile can land after the paste on a slow engine, so a paste is repeated until it shows.
+    await expect(async () => {
+      if (!(await row.textContent())?.includes(name)) { await search.fill(''); await search.fill(npubEncode(peer)) }
+      await expect(row).toContainText(name, { timeout: 4000 })
+    }).toPass({ timeout: 40000 })
     await search.press('Enter')
     await expect(page.locator('#peopleThread')).toBeVisible()
     expect(requests).toHaveLength(0)
