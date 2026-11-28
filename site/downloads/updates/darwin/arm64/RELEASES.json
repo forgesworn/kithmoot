@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.192",
+  "currentRelease": "0.1.193",
   "releases": [
     {
-      "version": "0.1.192",
+      "version": "0.1.193",
       "updateTo": {
-        "version": "0.1.192",
-        "name": "0.1.192",
+        "version": "0.1.193",
+        "name": "0.1.193",
         "pub_date": "2026-11-28T00:00:00Z",
-        "notes": "People reads well at large text, boards open from each room, Room info closes when you move on and room tasks open reliably while a room joins.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.192/KithMoot-0.1.192-mac-arm64.zip",
-        "sha256": "5089992992d5a9abb909fa4c65db06832815bdbdb7d567a73033a1b1efd9811d",
-        "size": 200424741
+        "notes": "Message anyone on Nostr from People, with message requests, invitations that send a note first and blocking on this device. Personas with the same name show both ends of their keys.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.193/KithMoot-0.1.193-mac-arm64.zip",
+        "sha256": "78fce86481e5a6c68d5b8f52d0d8830ee8f8c0e2ad57d2fe7c84d1a60b831c60",
+        "size": 200425399
       }
     }
   ]
