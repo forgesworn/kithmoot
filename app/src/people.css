@@ -95,6 +95,12 @@
   min-height: 0;
   flex: 1 1 auto;
 }
+/* On a short screen (a phone on its side) the parts above would leave the
+   rows a sliver, so the whole column scrolls as one instead. */
+@media (max-height: 500px) {
+  .peopleList { overflow-y: auto; overscroll-behavior: contain; }
+  .peopleList #peopleRows { flex: none; overflow-y: visible; }
+}
 
 .peopleList .peopleSection h3 {
   margin: var(--s3) var(--s2) var(--s1);
