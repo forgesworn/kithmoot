@@ -1,14 +1,14 @@
 {
-  "id": "2026-11-28-people-and-boards",
+  "id": "2026-11-28-people-nostr",
   "date": "28 November 2026",
-  "title": "People that reads well at any text size, and boards from each room",
+  "title": "Message people on Nostr from People",
   "changes": [
-    "People no longer draws the Nostr messages button over the public profiles note, and long names end neatly.",
-    "On a short screen the whole People column scrolls, so the switch, search and list stay usable.",
-    "Boards now open from each room rather than from the side rail.",
-    "The side rail and its buttons grow with larger text sizes.",
-    "Room info closes when you move to another part of the app.",
-    "A room's tasks open reliably while the room is still joining."
+    "Message anyone on Nostr from People. A conversation opens as a chat beside your list, with no separate message window.",
+    "Someone you have not talked to arrives as a message request. Their name and picture stay hidden unless you reply.",
+    "Invite someone to a private chat from their conversation. A short note tells them first.",
+    "Block someone from their conversation. The block stays on this device, and they are not told.",
+    "Send from People while a room or call is open. Settings › Account holds your Nostr inbox switch and inbox relays.",
+    "Personas with the same name show both ends of their keys."
   ],
-  "desktopVersion": "0.1.192"
+  "desktopVersion": "0.1.193"
 }
