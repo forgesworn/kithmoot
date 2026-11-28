@@ -7873,6 +7873,12 @@ infoSheet().addEventListener('close', () => {
   infoOpener = undefined
   if (opener?.isConnected && (!active || active === document.body || sheet.contains(active)) && opener.getClientRects().length) opener.focus({ preventScroll: true })
 })
+// Room info belongs to the room on screen. Beside the room it is a panel,
+// not a modal, so the rail stays usable: another destination closes it rather
+// than leave it open over People, Settings or Boards.
+document.addEventListener('shell:destination', event => {
+  if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'chats') closeRoomSheet()
+})
 infoSheet().querySelectorAll<HTMLElement>('[data-info-open]').forEach(row => {
   row.addEventListener('click', () => showInfoPage(row.dataset.infoOpen!, row))
 })
@@ -20780,7 +20786,7 @@ function openBoardsPanel(from: HTMLElement): void {
   const identity = identityGeneration, account = nostrSession
   void loadBoardsPanel().then(panel => {
     if (identity !== identityGeneration || account !== nostrSession) return
-    panel.open(from.isConnected ? from : $('railBoards'))
+    panel.open(from.isConnected ? from : $('railChats'))
   }).catch(error => setStatus(describeError(error)))
 }
 {
@@ -21087,20 +21093,20 @@ async function showWorkspaceWork(from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
-  panel.show(from.isConnected ? from : $('railBoards'))
+  panel.show(from.isConnected ? from : $('railChats'))
 }
 async function openWorkspaceWork(mode: 'inbox' | 'work', from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
-  panel.open(mode, from.isConnected ? from : $('railBoards'))
+  panel.open(mode, from.isConnected ? from : $('railChats'))
 }
 // Boards is a destination: the panel of what needs you and what is on the
 // boards sits in the main pane, and is open for as long as it is showing.
 document.addEventListener('shell:destination', event => {
   const destination = (event as CustomEvent<{ destination: string }>).detail.destination
   if (destination !== 'chats') closeRoomBoardView()
-  if (destination === 'boards') void showWorkspaceWork($('railBoards')).catch(error => setStatus(describeError(error)))
+  if (destination === 'boards') void showWorkspaceWork($('railChats')).catch(error => setStatus(describeError(error)))
   else if (destination !== 'settings') workspaceWork?.hide()
 })
 

@@ -535,6 +535,72 @@ test('a saved public profile opt-out can be changed inside People', async ({ bro
   } finally { await ac.close() }
 })
 
+test('a long People list scrolls below the switch and search, never over their words', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), longKey = generateSecretKey(), long = getPublicKey(longKey)
+  const follows = [long, ...Array.from({ length: 59 }, () => getPublicKey(generateSecretKey()))]
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountWithProfiles(browser, baseURL!, aKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [longKey] }, follows, new Map([[long, 'Bartholomew Featherstonehaugh-Wrigglesworth of the Long Name Society']]))
+    const alice = await ac.newPage()
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
+    // Each part above the rows ends its words before the next part starts:
+    // only the rows give way to a long list. Words hidden for screen readers
+    // and floating tips are not drawn in the flow, so they do not count.
+    const overlaps = () => alice.locator('#peopleList').evaluate(list => {
+      const parts = [...list.children].filter((part): part is HTMLElement => part instanceof HTMLElement && part.id !== 'peopleAddMenu' && part.getClientRects().length > 0)
+      const floats = (node: Node, part: HTMLElement) => {
+        for (let el = node.parentElement; el && el !== part; el = el.parentElement) {
+          const style = getComputedStyle(el)
+          if (style.position === 'absolute' || style.position === 'fixed' || el.getBoundingClientRect().width <= 1) return true
+        }
+        return false
+      }
+      const problems: string[] = []
+      parts.forEach((part, index) => {
+        const next = parts[index + 1]
+        if (!next || part.id === 'peopleRows') return
+        let bottom = -Infinity
+        const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT)
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (!node.textContent?.trim() || floats(node, part)) continue
+          const range = document.createRange(); range.selectNodeContents(node)
+          for (const line of range.getClientRects()) if (line.width > 1 && line.height > 1) bottom = Math.max(bottom, line.bottom)
+        }
+        const top = next.getBoundingClientRect().top
+        if (bottom > top + 1) problems.push(`${part.id || part.className} runs ${Math.round(bottom - top)}px into ${next.id || next.className}`)
+      })
+      return problems
+    })
+    // Rows wholly on screen: inside the window and inside whichever of the
+    // column or the rows is the one that scrolls.
+    const rowsOnScreen = () => alice.locator('#peopleList').evaluate(list => {
+      const rows = list.querySelector('#peopleRows')!, clips = [list.getBoundingClientRect(), rows.getBoundingClientRect()]
+      const top = Math.max(0, ...clips.map(box => box.top)), bottom = Math.min(innerHeight, ...clips.map(box => box.bottom))
+      return [...rows.querySelectorAll('li[data-person]')].filter(row => { const box = row.getBoundingClientRect(); return box.top >= top - 1 && box.bottom <= bottom + 1 }).length
+    })
+    // The name is too long for the 300 px column and for a phone held
+    // upright; on a phone on its side it fits.
+    for (const [size, viewport, nameOverflows] of [['standard', { width: 1280, height: 600 }, true], ['huge', { width: 390, height: 700 }, true], ['huge', { width: 844, height: 390 }, false]] as const) {
+      await alice.evaluate(value => localStorage.setItem('kithmoot.textSize', value), size)
+      await alice.setViewportSize(viewport)
+      await alice.reload()
+      await openPeople(alice)
+      await expect(alice.locator('#peopleRows li[data-person]')).toHaveCount(follows.length)
+      await expect.poll(overlaps).toEqual([])
+      // A long name ends in an ellipsis inside its row, not a hard cut.
+      const name = alice.locator(`#peopleRows li[data-person="${long}"] .personNameText`)
+      await expect(name).toHaveText(/^Bartholomew/)
+      await expect(name).toHaveCSS('text-overflow', 'ellipsis')
+      expect(await name.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(nameOverflows)
+      // Even a phone on its side at Huge shows several people at once.
+      await alice.locator('#peopleRows li[data-person]').nth(3).scrollIntoViewIfNeeded()
+      expect(await rowsOnScreen()).toBeGreaterThanOrEqual(3)
+      await alice.screenshot({ path: test.info().outputPath(`people-long-${size}-${viewport.width}.png`) })
+    }
+  } finally { publisher.close(); await ac.close() }
+})
+
 test('public profiles start on and the People switch shares the saved Settings preference', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey(), bKey = generateSecretKey(), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])

@@ -71,7 +71,7 @@ test('Signet contacts start a private conversation without a shared room, delive
     await expect(alice.locator('#chatLog')).toContainText('Hello Alice, this is my private reply')
     // Preserve source room ownership and the collaboration controls.
     await expect(alice.locator('#newMenuButton:visible')).toBeVisible()
-    await expect(alice.locator('#railBoards:visible')).toContainText('Boards')
+    await expect(alice.locator('#roomBoardButton')).toBeVisible()
     // A direct chat has two personal labels, never a shared room rename.
     await expect(alice.locator('#roomTitle')).toHaveText('Bob from Signet')
     await expect(bob.locator('#roomTitle')).toHaveText('Alice')

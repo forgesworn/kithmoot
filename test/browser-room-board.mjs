@@ -18,8 +18,8 @@ const shoot = (page, name) => shots ? page.screenshot({ path: resolve(shots, `ve
 
 async function openBoard(page) {
   await page.setViewportSize({ width: 1440, height: 900 })
-  // Boards, in the rail, opens on the board of the room that is open.
-  await page.locator('#railBoards').click()
+  // The chat header's Board opens the board of the room that is open.
+  await page.locator('#roomBoardButton').click()
   await expect(page.locator('#roomBoardPanel')).toBeVisible()
   await expect(composer(page)).toBeVisible({ timeout: 45000 })
   await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
@@ -35,7 +35,7 @@ async function closeBoard(page) {
 // Back from a card to the whole board.
 async function toBoard(page) {
   await page.keyboard.press('Escape')
-  if (!await composer(page).isVisible().catch(() => false)) await page.locator('#railBoards').click().catch(() => {})
+  if (!await composer(page).isVisible().catch(() => false)) await page.locator('#roomBoardButton').click().catch(() => {})
   await expect(composer(page)).toBeVisible()
 }
 async function write(page, { title, file, text }, withFile) {

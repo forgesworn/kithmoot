@@ -282,8 +282,8 @@ test('on a phone the board opens from the chat header and returns to the same co
   const context = await newDeviceContext(browser, baseURL!, { viewport: { width: 320, height: 640 }, hasTouch: true })
   const page = await context.newPage()
   await createRoom(page, baseURL!, testRelaysFor(baseURL!))
-  // The phone can open the board directly from this room's chat header.
-  await expect(page.locator('#railBoards')).toBeHidden()
+  // The phone opens the board from this room's chat header; the bar has
+  // no Boards of its own.
   await openRoomBoard(page)
   await addCard(page, 'Bring the urn')
   await expect(card(page, 'Bring the urn')).toBeInViewport({ ratio: 0.5 })

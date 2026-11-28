@@ -81,7 +81,7 @@ const routed=async(page,button,words)=>{
 const board=page=>page.frameLocator('#roomBoardPanel iframe')
 const card=(page,title)=>board(page).getByRole('link',{name:title,exact:true})
 const composer=page=>board(page).getByRole('textbox',{name:'Add a card to To do',exact:true})
-const openBoards=async page=>{await page.locator('#railBoards').click();await expect(page.getByRole('heading',{name:'Boards',exact:true})).toBeVisible()}
+const openBoards=async page=>{await page.keyboard.press('Control+3');await expect(page.getByRole('heading',{name:'Boards',exact:true})).toBeVisible()}
 const backToChat=async page=>{await page.locator('#railChats').click();if(!await page.locator('#chatInput').isVisible())await page.getByRole('button',{name:'Open Untitled room',exact:true}).click();await expect(page.locator('#chatInput')).toBeVisible()}
 const write=async(page,title)=>{await expect(composer(page)).toBeVisible({timeout:45000});await composer(page).fill(title);await composer(page).press('Enter');await expect(card(page,title)).toBeVisible()}
 // The later build's board, once everything it holds has reached the room.
