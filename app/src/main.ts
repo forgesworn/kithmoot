@@ -20628,6 +20628,12 @@ let assignmentAttachSession: RoomSession | undefined
 let assignmentAttachPromise: Promise<void> | undefined
 async function attachAssignmentPanel(selected: RoomSession | undefined): Promise<AssignmentPanel | undefined> {
   if (!selected) return undefined
+  // A room's tasks open once its join has finished. Asked for mid-join (a
+  // quick tap on Current room tasks), wait for the join rather than attach
+  // now: the session would refuse, and that refusal would stay cached for the
+  // rest of the session, leaving the panel saying to join first.
+  const waitUntil = Date.now() + 30_000
+  while (joining && session === selected && Date.now() < waitUntil) await new Promise(resolve => setTimeout(resolve, 100))
   const generation = roomGeneration, identity = identityGeneration
   const panel = await loadAssignmentPanel()
   if (session !== selected || roomGeneration !== generation || identityGeneration !== identity) return undefined
