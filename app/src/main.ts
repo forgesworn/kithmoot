@@ -20641,6 +20641,8 @@ function linkSignetContacts(opener: HTMLElement): void {
     follows.refresh()
     renderPeople()
   })
+  // A thread that comes back into view reads what it shows, as a room's chat does.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && currentDestination() === 'people') people?.reconcileThread() })
 }
 
 let browserAssignmentStorage!: typeof import('./assignment-panel.js').browserAssignmentStorage
@@ -21856,7 +21858,7 @@ function peopleThreadHost(): ThreadHost {
     thread: peer => peopleNostrInbox?.threads().find(thread => thread.peer === peer),
     availability: peopleAvailability,
     engine: peopleEngine,
-    markRead: ids => { void peopleNostrInbox?.markRead(new Set(ids)) },
+    markRead: ids => peopleNostrInbox?.markRead(new Set(ids)),
     visible: () => currentDestination() === 'people' && !document.hidden && (!onePane() || detailOpen()),
     focusField: () => !window.matchMedia('(pointer: coarse)').matches,
   }

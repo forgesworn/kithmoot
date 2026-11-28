@@ -402,8 +402,9 @@ export class PeopleView {
   /** Open a thread for a key that may not be listed yet, as if its npub had been pasted. */
   openKey(pubkey: string): void {
     this.#query.value = npubEncode(pubkey)
-    this.select(pubkey)
+    // The pane goes on screen first: a thread marks read and takes focus only when shown.
     this.#actions.openDetail()
+    this.select(pubkey)
   }
 
   /** Send the one-line note ahead of an invitation, in this person's thread. */
@@ -464,8 +465,9 @@ export class PeopleView {
     button.setAttribute('aria-label', person.request ? [name, 'message request', when].filter(Boolean).join(', ')
       : [name, unread ? `${unread} unread` : '', when, sub].filter(Boolean).join(', '))
     button.onclick = () => {
-      this.select(person.pubkey)
+      // Below 900 px the pane is on screen only once pushed, so push it before drawing.
       this.#actions.openDetail()
+      this.select(person.pubkey)
     }
     const text = document.createElement('span')
     text.className = 'personText'

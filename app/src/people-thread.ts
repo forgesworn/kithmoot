@@ -23,7 +23,8 @@ export interface ThreadHost {
   availability(): Availability
   /** A new engine for one message, or none when this account cannot send. */
   engine(changed: () => void): NostrMessage | undefined
-  markRead(ids: string[]): void
+  /** Saves these messages as read; settles once the write has finished or failed. */
+  markRead(ids: string[]): Promise<void> | void
   /** Whether the pane is on screen (one pane under 900 px hides it). */
   visible(): boolean
   /** Whether to focus the field on selecting a row (not on touch). */
@@ -89,6 +90,8 @@ export class PeopleThreadView {
   #lane = document.createElement('span')
   #timer?: number
   #focusFor?: string
+  /** The read write in hand, if any, and which messages it was last for. */
+  #reading = { busy: false, key: '' }
 
   constructor(host: ThreadHost) {
     this.#host = host
@@ -160,6 +163,8 @@ export class PeopleThreadView {
       this.#log.replaceChildren()
       this.#scroll.dataset.fresh = '1'
       this.#focusFor = subject.pubkey
+      // Opening a thread again tries again, after a write the device refused.
+      this.#reading.key = ''
     }
     // At Huge text the name would wrap inside a one-line field, so the label carries it instead.
     this.#input.placeholder = document.documentElement.dataset.textSize === 'huge' ? 'Message' : `Message ${subject.name}`
@@ -225,7 +230,7 @@ export class PeopleThreadView {
     this.#outcomeNote.hidden = !status
     this.#paintBar()
     this.#paintComposer()
-    if (this.#host.visible() && thread?.unread) this.#host.markRead(messages.filter(message => message.author !== self).map(message => message.id))
+    if (this.#host.visible() && thread?.unread) this.#markRead(subject.pubkey, messages.filter(message => message.author !== self).map(message => message.id))
     if (this.#focusFor === subject.pubkey && this.#host.visible() && this.#host.focusField() && this.#input.offsetParent) {
       this.#focusFor = undefined
       this.#input.focus({ preventScroll: true })
@@ -240,6 +245,21 @@ export class PeopleThreadView {
     window.clearTimeout(this.#timer)
     for (const list of this.#pending.values()) for (const entry of list) entry.engine.close()
     this.#pending.clear()
+  }
+
+  /** One read write at a time, and one for each set of messages on screen. Two redraws in
+   *  one turn would otherwise race for the same lock, and a write the device keeps refusing
+   *  would be retried on every redraw; the inbox line already reports a refusal. */
+  #markRead(peer: string, ids: string[]): void {
+    const key = `${peer}:${ids.join(',')}`
+    if (this.#reading.busy || this.#reading.key === key) return
+    const reading = this.#reading = { busy: true, key }
+    void Promise.resolve(this.#host.markRead(ids)).catch(() => {}).finally(() => {
+      reading.busy = false
+      // What arrived while the write was in hand is read now, once.
+      const current = this.#subject
+      if (current && this.#host.visible() && this.#host.thread(current.pubkey)?.unread) this.reconcile()
+    })
   }
 
   #refresh(entry: Pending): void {
