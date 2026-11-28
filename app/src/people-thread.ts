@@ -2,7 +2,7 @@ import './people-thread.css'
 import { icon } from './icons.js'
 import { dayWords, personAvatar, shortNpub } from './people.js'
 import type { NostrMessage } from './nostr-message.js'
-import type { NostrPeopleThread } from './people-nostr-inbox.js'
+import type { NostrPeopleThread, ReadOutcome } from './people-nostr-inbox.js'
 
 /**
  * One Nostr message thread, drawn inside the People pane: the transcript, the
@@ -24,7 +24,7 @@ export interface ThreadHost {
   /** A new engine for one message, or none when this account cannot send. */
   engine(changed: () => void): NostrMessage | undefined
   /** Saves these messages as read; settles once the write has finished or failed. */
-  markRead(ids: string[]): Promise<void> | void
+  markRead(ids: string[]): Promise<ReadOutcome | undefined> | void
   /** Whether the pane is on screen (one pane under 900 px hides it). */
   visible(): boolean
   /** Whether to focus the field on selecting a row (not on touch). */
@@ -253,12 +253,15 @@ export class PeopleThreadView {
   #markRead(peer: string, ids: string[]): void {
     const key = `${peer}:${ids.join(',')}`
     if (this.#reading.busy || this.#reading.key === key) return
-    const reading = this.#reading = { busy: true, key }
-    void Promise.resolve(this.#host.markRead(ids)).catch(() => {}).finally(() => {
+    this.#reading = { busy: true, key }
+    const reading = this.#reading
+    void Promise.resolve(this.#host.markRead(ids)).catch((): ReadOutcome => 'refused').then(outcome => {
       reading.busy = false
-      // What arrived while the write was in hand is read now, once.
+      // Nothing was written (the inbox was changing), so the next redraw asks again.
+      if (outcome !== 'saved' && outcome !== 'refused') { reading.key = ''; return }
+      // What arrived while the write was in hand is read now; the same set is not asked again.
       const current = this.#subject
-      if (current && this.#host.visible() && this.#host.thread(current.pubkey)?.unread) this.reconcile()
+      if (outcome === 'saved' && current && this.#host.visible() && this.#host.thread(current.pubkey)?.unread) this.reconcile()
     })
   }
 

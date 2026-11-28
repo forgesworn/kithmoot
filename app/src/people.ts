@@ -444,7 +444,10 @@ export class PeopleView {
     return undefined
   }
 
+  /** The order holds still under the pointer or the keyboard, but only while the list is on screen:
+   *  below 900 px a thread covers it, and what was read there has to show when the list comes back. */
   #held(): boolean {
+    if (!this.#rows.getClientRects().length) return false
     return this.#rows.contains(document.activeElement) || this.#rows.matches(':hover')
   }
 

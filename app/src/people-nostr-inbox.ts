@@ -11,6 +11,7 @@ const WINDOW_SECONDS = 32 * 86_400 // Includes NIP-17's two days of outer timest
 const MAX_SEEN = 2_048
 const BATCH = 16
 export const peopleInboxReadKey = (account: string) => `kithmoot.nostr-people-read.v1.${account}`
+export type ReadOutcome = 'saved' | 'skipped' | 'refused'
 export const peopleInboxEnabledKey = (account: string) => `kithmoot.nostr-people-inbox.v1.${account}`
 
 type InboxTransport = Pick<RelayTransport, 'subscribe' | 'close'> & {
@@ -267,20 +268,27 @@ export class PeopleNostrInbox {
     this.#notify()
   }
 
-  async markRead(ids: ReadonlySet<string>): Promise<void> {
+  /** Saves these messages as read on this device. `skipped` means nothing could be written yet
+   *  (the inbox is closing, or their copies are not known); `refused` means the device would not take it. */
+  async markRead(ids: ReadonlySet<string>): Promise<ReadOutcome> {
     const copies = [...ids].flatMap(id => [...(this.#messages.get(id)?.copies ?? [])])
-    if (!copies.length || !this.#current()) return
+    if (!copies.length || !this.#current()) return 'skipped'
     const key = peopleInboxReadKey(this.options.account)
+    let outcome: ReadOutcome = 'saved'
     try {
       const release = await this.options.acquire(key)
       try {
-        if (!this.#current()) return
+        if (!this.#current()) return 'skipped'
         const next = [...new Set([...this.#storedRead(), ...copies])].slice(-MAX_SEEN)
         this.options.store.set(key, JSON.stringify(next))
         this.#read = new Set(next)
       } finally { release() }
-    } catch { if (this.#current()) this.#status = 'The latest read position could not be saved on this device.' }
+    } catch {
+      outcome = 'refused'
+      if (this.#current()) this.#status = 'The latest read position could not be saved on this device.'
+    }
     this.#notify()
+    return outcome
   }
 
   close(): void {
